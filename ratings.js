@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.3.4 — RT via MDBList + Fallback)
+// @name         Jellyfin Ratings (v6.3.5 — RT via MDBList + Fallback)
 // @namespace    https://mdblist.com
-// @version      6.3.4
+// @version      6.3.5
 // @description  Unified ratings for Jellyfin 10.11.x (IMDb, TMDb, Trakt, Letterboxd, AniList, MAL, RT critic+audience, Roger Ebert, Metacritic critic+user). Normalized 0–100, colorized; custom inline “Ends at …”; parental badge cloned to start; debounced single observer; namespaced caches; tidy helpers and styles.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
@@ -25,12 +25,13 @@ const DEFAULT_ENABLE_SOURCES = {
 };
 
 const DEFAULT_DISPLAY = {
-  showPercentSymbol:      true,
-  colorizeRatings:        true,
-  colorizeNumbersOnly:    true,
-  align:                  'left',
-  endsAtFormat:           '24h',
-  endsAtBullet:           true
+  showPercentSymbol:  true,
+  colorizeRatings:    true,   // master switch for any coloring
+  colorNumbers:       true,   // NEW: color numbers
+  colorIcons:         false,  // NEW: color icons (via soft glow)
+  align:              'left',
+  endsAtFormat:       '24h',
+  endsAtBullet:       true
 };
 
 const DEFAULT_SPACING = { ratingsTopGapPx: 8 };
@@ -117,8 +118,6 @@ const Util = {
 'use strict';
 
 let currentImdbId = null;
-/* store optional counts for icon tooltips */
-const COUNT_REG = Object.create(null); // key -> count (number or string)
 
 /* strip duplicate/non-inline "Ends at" */
 function removeBuiltInEndsAt(){
@@ -190,7 +189,7 @@ function findRuntimeNode(primary){
 }
 function parseRuntimeToMinutes(text){
   if (!text) return 0;
-  const m=text.match(/(?:(\d+)\s*h(?:ours?)?\s*)?(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i);
+  const m=text.match(/(?:(\d+)\s*h(?:hours?)?\s*)?(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i);
   if(!m) return 0; const h=parseInt(m[1]||'0',10), min=parseInt(m[2]||'0',10);
   if(h===0&&min===0){ const only=text.match(/(\d+)\s*m(?:in(?:utes?)?)?/i); return only?parseInt(only[1],10):0; }
   return h*60+min;
@@ -230,7 +229,7 @@ function updateRatings(){
   });
 }
 
-/* render one badge — icon links out, number opens settings; icon tooltip may show counts */
+/* render one badge — icon links out (with count tooltip), number opens settings */
 function appendRating(container, logo, val, title, key, link, count){
   if (!Util.validNumber(val)) return;
   const n=Util.normalize(val,key); if(!Util.validNumber(n)) return;
@@ -239,12 +238,11 @@ function appendRating(container, logo, val, title, key, link, count){
 
   const wrap=document.createElement('div');
   wrap.dataset.source=key;
-  wrap.style='display:inline-flex;align-items:center;margin:0 6px;gap:3px;';
+  wrap.style='display:inline-flex;align-items:center;margin:0 6px;gap:6px;';
 
   /* icon (external link) */
   const a=document.createElement('a'); a.href=link||'#'; if (link&&link!=='#') a.target='_blank'; a.style.textDecoration='none';
   const img=document.createElement('img'); img.src=logo; img.alt=title; img.style='height:1.3em;vertical-align:middle;';
-  const ckey = key.toLowerCase();
   const countText = (typeof count==='number' && isFinite(count)) ? count.toLocaleString()
                    : (typeof count==='string' && count.trim() ? count.trim() : '');
   img.title = countText ? `${title} — ${countText}` : title;
@@ -255,13 +253,15 @@ function appendRating(container, logo, val, title, key, link, count){
   s.style='font-size:1em;vertical-align:middle;cursor:pointer;';
   s.addEventListener('click', e=>{ e.preventDefault(); e.stopPropagation(); if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS(); });
 
-  /* colorize */
+  /* colorize via new toggles */
   if (DISPLAY.colorizeRatings){
-    let col = r>=COLOR_THRESHOLDS.green?COLOR_VALUES.green: r>=COLOR_THRESHOLDS.orange?COLOR_VALUES.orange:COLOR_VALUES.red;
-    if (DISPLAY.colorizeNumbersOnly) s.style.color=col; else { s.style.color=col; img.style.filter=`drop-shadow(0 0 3px ${col})`; }
+    const col = r>=COLOR_THRESHOLDS.green?COLOR_VALUES.green: r>=COLOR_THRESHOLDS.orange?COLOR_VALUES.orange:COLOR_VALUES.red;
+    if (DISPLAY.colorNumbers) s.style.color = col;
+    if (DISPLAY.colorIcons)   img.style.filter = `drop-shadow(0 0 3px ${col})`;
   }
 
   wrap.append(a,s); container.append(wrap);
+
   /* re-sort */
   [...container.children].sort((a,b)=>(RATING_PRIORITY[a.dataset.source]??999)-(RATING_PRIORITY[b.dataset.source]??999))
     .forEach(el=>container.appendChild(el));
@@ -279,7 +279,7 @@ function fetchRatings(tmdbId, imdbId, container, type='movie'){
 
       d.ratings?.forEach(rr=>{
         const s=(rr.source||'').toLowerCase(), v=rr.value;
-        const cnt = rr.votes || rr.count || rr.reviewCount || rr.ratingCount; // best effort counts if MDBList provides them
+        const cnt = rr.votes || rr.count || rr.reviewCount || rr.ratingCount;
 
         if (s.includes('imdb') && ENABLE_SOURCES.imdb)
           appendRating(container, LOGO.imdb, v, 'IMDb', 'imdb', `https://www.imdb.com/title/${imdbId}/`, cnt);
@@ -445,11 +445,12 @@ updateAll();
 })(); 
 
 /* ======================================================
-   SETTINGS (open via clicking any rating number/%)
+   SETTINGS (numbers open this panel)
    - Keep MDBList API key (no “Keys” heading)
-   - Display keeps bullet toggle (moved here earlier)
+   - Display: Colorize ratings, Color numbers, Color icons, then “Show bullet…”
    - RT & MC are separate toggles (Critic/User & Critic/Audience)
    - Click outside closes; panel is draggable by its header
+   - Checkboxes across sections are aligned
 ====================================================== */
 (function settingsMenu(){
   const PREFS_KEY = `${NS}prefs`;
@@ -494,7 +495,8 @@ updateAll();
 
   /* UI */
   const css=`
-  #mdbl-panel{position:fixed;right:16px;bottom:70px;width:460px;max-height:88vh;overflow:auto;border-radius:14px;
+  :root { --mdbl-right-col-width: 48px; }
+  #mdbl-panel{position:fixed;right:16px;bottom:70px;width:480px;max-height:88vh;overflow:auto;border-radius:14px;
     border:1px solid rgba(255,255,255,0.15);background:rgba(22,22,26,0.94);backdrop-filter:blur(8px);
     color:#eaeaea;z-index:99999;box-shadow:0 20px 40px rgba(0,0,0,0.45);display:none}
   #mdbl-panel header{position:sticky;top:0;background:rgba(22,22,26,0.96);padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.08);
@@ -504,23 +506,22 @@ updateAll();
   #mdbl-close:hover{background:rgba(255,255,255,0.06);color:#fff}
   #mdbl-panel .mdbl-section{padding:12px 16px;display:flex;flex-direction:column;gap:10px}
   #mdbl-panel .mdbl-subtle{color:#9aa0a6;font-size:12px}
-  #mdbl-panel .mdbl-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
-  #mdbl-panel input[type="checkbox"]{transform:scale(1.1)}
+  /* unified row/grid for alignment */
+  #mdbl-panel .mdbl-row,
+  #mdbl-panel .mdbl-source{display:grid;grid-template-columns: 1fr var(--mdbl-right-col-width);align-items:center;gap:10px}
+  #mdbl-panel input[type="checkbox"]{transform:scale(1.1);justify-self:end}
   #mdbl-panel input[type="text"]{width:100%;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#121317;color:#eaeaea}
-  #mdbl-panel select{padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#121317;color:#eaeaea}
+  #mdbl-panel select{padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#121317;color:#eaeaea;justify-self:end}
   #mdbl-panel .mdbl-select{width:200px}
   #mdbl-panel .mdbl-actions{position:sticky;bottom:0;background:rgba(22,22,26,0.96);display:flex;gap:10px;padding:12px 16px;border-top:1px solid rgba(255,255,255,0.08)}
   #mdbl-panel button{padding:9px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#1b1c20;color:#eaeaea;cursor:pointer}
   #mdbl-panel button.primary{background:#2a6df4;border-color:#2a6df4;color:#fff}
   #mdbl-sources{display:flex;flex-direction:column;gap:8px}
-  .mdbl-source{display:flex;align-items:center;gap:10px;background:#0f1115;border:1px solid rgba(255,255,255,0.1);padding:8px 10px;border-radius:12px}
-  .mdbl-source img{height:18px;width:auto}
-  .mdbl-source .name{font-size:13px}
-  .mdbl-source .spacer{flex:1}
-  .mdbl-drag{cursor:grab;opacity:0.9}
-  .mdbl-drag:active{cursor:grabbing}
-  .mdbl-drag-handle{font-size:16px;opacity:0.6}
-  .mdbl-dropping{outline:2px dashed rgba(255,255,255,0.25)}
+  .mdbl-source{background:#0f1115;border:1px solid rgba(255,255,255,0.1);padding:8px 10px;border-radius:12px}
+  .mdbl-src-left{display:flex;align-items:center;gap:10px}
+  .mdbl-src-left img{height:18px;width:auto}
+  .mdbl-src-left .name{font-size:13px}
+  .mdbl-drag-handle{justify-self:start;opacity:0.6;margin-left:-2px;cursor:grab}
   `;
   const style=document.createElement('style'); style.id='mdbl-settings-css'; style.textContent=css; document.head.appendChild(style);
 
@@ -565,23 +566,26 @@ updateAll();
       .map(k=>({k, icon:ICON[k], label:LABEL[k]||k.replace(/_/g,' ')}));
   }
   function makeSourceRow(item){
-    const key=item.k, li=document.createElement('div'); li.className='mdbl-source mdbl-drag'; li.draggable=true; li.dataset.k=key;
+    const key=item.k;
+    const row=document.createElement('div'); row.className='mdbl-source'; row.dataset.k=key; row.draggable=true;
     const checked=!!ENABLE_SOURCES[key];
-    li.innerHTML=`
-      <img src="${item.icon}" alt="${item.label}" title="${item.label}">
-      <span class="name">${item.label}</span>
-      <div class="spacer"></div>
-      <label class="toggle" title="Enable/disable">
+
+    row.innerHTML=`
+      <div class="mdbl-src-left">
+        <span class="mdbl-drag-handle" title="Drag to reorder">⋮⋮</span>
+        <img src="${item.icon}" alt="${item.label}">
+        <span class="name">${item.label}</span>
+      </div>
+      <div class="right">
         <input type="checkbox" ${checked?'checked':''} data-toggle="${key}">
-      </label>
-      <span class="mdbl-drag-handle" title="Drag to reorder">⋮⋮</span>
+      </div>
     `;
-    return li;
+    return row;
   }
   function enableDnD(container){
     let dragging=null;
     container.addEventListener('dragstart',e=>{
-      const t=e.target.closest('.mdbl-source'); if(!t) return; dragging=t; t.classList.add('mdbl-dropping'); e.dataTransfer.effectAllowed='move';
+      const t=e.target.closest('.mdbl-source'); if(!t) return; dragging=t; t.style.opacity='0.6'; e.dataTransfer.effectAllowed='move';
     });
     container.addEventListener('dragover',e=>{
       if(!dragging) return; e.preventDefault();
@@ -589,20 +593,29 @@ updateAll();
       (after==null)?container.appendChild(dragging):container.insertBefore(dragging,after);
     });
     ['drop','dragend'].forEach(evt=>{
-      container.addEventListener(evt,()=>{ if(dragging) dragging.classList.remove('mdbl-dropping'); dragging=null; });
+      container.addEventListener(evt,()=>{ if(dragging) dragging.style.opacity=''; dragging=null; });
     });
     function getAfter(container,y){
-      const els=[...container.querySelectorAll('.mdbl-source:not(.mdbl-dropping)')];
+      const els=[...container.querySelectorAll('.mdbl-source:not([style*="opacity: 0.6"])')];
       return els.reduce((c,ch)=>{ const box=ch.getBoundingClientRect(), off=y-box.top-box.height/2; return (off<0&&off>c.offset)?{offset:off,element:ch}:c; }, {offset:-1e9}).element;
     }
   }
 
   function render(){
-    /* Keys (keep field, no "Keys" title) */
+    /* Keys */
     const kWrap=panel.querySelector('#mdbl-sec-keys');
     const injKey=getInjectorKey(); const stored=getStoredKeys().MDBLIST||'';
     const readonly=injKey?'readonly':''; const ph=injKey?'(managed by injector)':'Enter MDBList API key';
-    kWrap.innerHTML=`<label class="mdbl-subtle">MDBList API key</label><input type="text" id="mdbl-key-mdb" ${readonly} placeholder="${ph}" value="${injKey?injKey:(stored||'')}">`;
+    kWrap.innerHTML=`
+      <div class="mdbl-row">
+        <label class="mdbl-subtle">MDBList API key</label>
+        <span></span>
+      </div>
+      <div class="mdbl-row">
+        <input type="text" id="mdbl-key-mdb" ${readonly} placeholder="${ph}" value="${injKey?injKey:(stored||'')}">
+        <span></span>
+      </div>
+    `;
 
     /* Sources */
     const sWrap=panel.querySelector('#mdbl-sec-sources');
@@ -611,29 +624,30 @@ updateAll();
     orderFromPriorities().forEach(item=>sList.appendChild(makeSourceRow(item)));
     enableDnD(sList);
 
-    /* Display */
+    /* Display — order: Colorize ratings → Color numbers → Color icons → Show bullet → Align → Ends at format */
     const dWrap=panel.querySelector('#mdbl-sec-display');
     dWrap.innerHTML=`
       <div class="mdbl-subtle">Display</div>
-      <label class="mdbl-row"><span>Show %</span><input type="checkbox" id="d_showPercent" ${DISPLAY.showPercentSymbol?'checked':''}></label>
-      <label class="mdbl-row"><span>Colorize ratings</span><input type="checkbox" id="d_colorize" ${DISPLAY.colorizeRatings?'checked':''}></label>
-      <label class="mdbl-row"><span>Numbers only colored</span><input type="checkbox" id="d_colorNumsOnly" ${DISPLAY.colorizeNumbersOnly?'checked':''}></label>
-      <label class="mdbl-row">
+      <div class="mdbl-row"><span>Colorize ratings</span><input type="checkbox" id="d_colorize" ${DISPLAY.colorizeRatings?'checked':''}></div>
+      <div class="mdbl-row"><span>Color numbers</span><input type="checkbox" id="d_colorNumbers" ${DISPLAY.colorNumbers?'checked':''}></div>
+      <div class="mdbl-row"><span>Color icons</span><input type="checkbox" id="d_colorIcons" ${DISPLAY.colorIcons?'checked':''}></div>
+      <div class="mdbl-row"><span>Show %</span><input type="checkbox" id="d_showPercent" ${DISPLAY.showPercentSymbol?'checked':''}></div>
+      <div class="mdbl-row"><span>Show bullet before “Ends at”</span><input type="checkbox" id="d_endsBullet" ${DISPLAY.endsAtBullet?'checked':''}></div>
+      <div class="mdbl-row">
         <span>Align</span>
         <select id="d_align" class="mdbl-select">
           <option value="left" ${DISPLAY.align==='left'?'selected':''}>left</option>
           <option value="center" ${DISPLAY.align==='center'?'selected':''}>center</option>
           <option value="right" ${DISPLAY.align==='right'?'selected':''}>right</option>
         </select>
-      </label>
-      <label class="mdbl-row">
+      </div>
+      <div class="mdbl-row">
         <span>Ends at format</span>
         <select id="d_endsFmt" class="mdbl-select">
           <option value="24h" ${DISPLAY.endsAtFormat==='24h'?'selected':''}>24h</option>
           <option value="12h" ${DISPLAY.endsAtFormat==='12h'?'selected':''}>12h</option>
         </select>
-      </label>
-      <label class="mdbl-row"><span>Show bullet before “Ends at”</span><input type="checkbox" id="d_endsBullet" ${DISPLAY.endsAtBullet?'checked':''}></label>
+      </div>
     `;
   }
 
@@ -641,6 +655,9 @@ updateAll();
   function hide(){ panel.style.display='none'; }
   window.MDBL_OPEN_SETTINGS=()=>{ render(); show(); };
   panel.addEventListener('click', e=>{ if(e.target.id==='mdbl-close') hide(); });
+
+  /* close on outside click */
+  document.addEventListener('mousedown', e=>{ if (panel.style.display!=='block') return; if (!panel.contains(e.target)) hide(); });
 
   panel.querySelector('#mdbl-btn-reset').addEventListener('click', ()=>{
     Object.assign(ENABLE_SOURCES, deepClone(DEFAULTS.sources));
@@ -654,18 +671,26 @@ updateAll();
   panel.querySelector('#mdbl-btn-save').addEventListener('click', ()=>{
     const prefs={ sources:{}, display:{}, priorities:{} };
 
+    /* priorities from drag order */
     [...panel.querySelectorAll('#mdbl-sources .mdbl-source')].forEach((el,i)=>{ prefs.priorities[el.dataset.k]=i+1; });
-    panel.querySelectorAll('#mdbl-sources input[type="checkbox"][data-toggle]').forEach(cb=>{ prefs.sources[cb.dataset.toggle]=cb.checked; });
 
-    prefs.display.showPercentSymbol   = panel.querySelector('#d_showPercent').checked;
-    prefs.display.colorizeRatings     = panel.querySelector('#d_colorize').checked;
-    prefs.display.colorizeNumbersOnly = panel.querySelector('#d_colorNumsOnly').checked;
-    prefs.display.align               = panel.querySelector('#d_align').value;
-    prefs.display.endsAtFormat        = panel.querySelector('#d_endsFmt').value;
-    prefs.display.endsAtBullet        = panel.querySelector('#d_endsBullet').checked;
+    /* source toggles */
+    panel.querySelectorAll('#mdbl-sources input[type="checkbox"][data-toggle]').forEach(cb=>{
+      prefs.sources[cb.dataset.toggle]=cb.checked;
+    });
+
+    /* display toggles */
+    prefs.display.colorizeRatings = panel.querySelector('#d_colorize').checked;
+    prefs.display.colorNumbers    = panel.querySelector('#d_colorNumbers').checked;
+    prefs.display.colorIcons      = panel.querySelector('#d_colorIcons').checked;
+    prefs.display.showPercentSymbol = panel.querySelector('#d_showPercent').checked;
+    prefs.display.endsAtBullet    = panel.querySelector('#d_endsBullet').checked;
+    prefs.display.align           = panel.querySelector('#d_align').value;
+    prefs.display.endsAtFormat    = panel.querySelector('#d_endsFmt').value;
 
     savePrefs(prefs); applyPrefs(prefs);
 
+    /* keys (only if no injector) */
     const injKey=getInjectorKey(); const keyInput=panel.querySelector('#mdbl-key-mdb');
     if (keyInput && !injKey) setStoredKey((keyInput.value||'').trim());
 
