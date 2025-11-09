@@ -658,9 +658,13 @@ window.MDBL_API = {
   setConfig(cfg){ Object.assign(__CFG__, cfg||{}); },
 };
 /* ======================================================
-   Floating Settings Menu (bottom-right) + Keys editor
-   v2.1 — single column, icons, drag&drop sort, page reload on save,
-   X close in header, uniform select widths, Ends-at bullet at bottom
+   Settings Menu + Header Toggle (item pages only)
+   - Tall panel (reduced scrolling)
+   - Ends-at bullet placed right under Icons only
+   - No “Keys” heading; only MDBList API key field
+   - Close via “×” in header (no bottom Close)
+   - Header button injected between Play and Trailer
+   - Hidden on Home and hidden while video is playing
 ====================================================== */
 (function settingsMenu(){
   const PREFS_KEY = `${NS}prefs`;
@@ -692,7 +696,7 @@ window.MDBL_API = {
     rotten_tomatoes_audience: LOGO.audience,
     roger_ebert: LOGO.roger,
     metacritic_critic: LOGO.metacritic,
-    metacritic_user: LOGO.metacritic_user || LOGO.metacritic, // fallback
+    metacritic_user: LOGO.metacritic_user || LOGO.metacritic,
     anilist: LOGO.anilist,
     myanimelist: LOGO.myanimelist,
   };
@@ -703,17 +707,13 @@ window.MDBL_API = {
     priorities: deepClone(RATING_PRIORITY),
   };
 
+  // --- Keys helpers (prefer injector over local) ---
   function getInjectorKey(){
     try { return (window.MDBL_KEYS && typeof window.MDBL_KEYS==='object' && window.MDBL_KEYS.MDBLIST) ? String(window.MDBL_KEYS.MDBLIST) : ''; }
     catch { return ''; }
   }
   function getStoredKeys(){
     try { return JSON.parse(localStorage.getItem(LS_KEYS) || '{}'); } catch { return {}; }
-  }
-  function getEffectiveKey(){
-    const inj = getInjectorKey();
-    if (inj) return inj;
-    return getStoredKeys().MDBLIST || '';
   }
   function setStoredKey(newKey){
     const obj = Object.assign({}, getStoredKeys(), { MDBLIST: newKey || '' });
@@ -723,7 +723,7 @@ window.MDBL_API = {
       window.MDBL_KEYS.MDBLIST = newKey || '';
     }
     if (window.MDBL_STATUS && window.MDBL_STATUS.keys) {
-      window.MDBL_STATUS.keys.MDBLIST = !!getEffectiveKey();
+      window.MDBL_STATUS.keys.MDBLIST = !!(getInjectorKey() || newKey);
     }
   }
 
@@ -752,13 +752,12 @@ window.MDBL_API = {
 
   // ---------- UI ----------
   const css = `
-  #mdbl-gear{position:fixed;right:16px;bottom:16px;width:44px;height:44px;border-radius:999px;border:1px solid rgba(255,255,255,0.15);
-    background:rgba(20,20,20,0.78);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:99999;
-    box-shadow:0 4px 14px rgba(0,0,0,0.35)}
-  #mdbl-gear svg{width:22px;height:22px;fill:currentColor;color:#ddd}
-  #mdbl-panel{position:fixed;right:16px;bottom:70px;width:420px;max-height:72vh;overflow:auto;border-radius:14px;border:1px solid rgba(255,255,255,0.15);
-    background:rgba(22,22,26,0.94);backdrop-filter:blur(8px);color:#eaeaea;z-index:99999;box-shadow:0 20px 40px rgba(0,0,0,0.45);display:none}
-  #mdbl-panel header{position:sticky;top:0;background:rgba(22,22,26,0.96);padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;gap:8px}
+  /* Panel: taller, minimal scrolling */
+  #mdbl-panel{position:fixed;right:16px;bottom:70px;width:460px;max-height:88vh;overflow:auto;border-radius:14px;
+    border:1px solid rgba(255,255,255,0.15);background:rgba(22,22,26,0.94);backdrop-filter:blur(8px);
+    color:#eaeaea;z-index:99999;box-shadow:0 20px 40px rgba(0,0,0,0.45);display:none}
+  #mdbl-panel header{position:sticky;top:0;background:rgba(22,22,26,0.96);padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.08);
+    display:flex;align-items:center;gap:8px}
   #mdbl-panel header h3{margin:0;font-size:15px;font-weight:700;flex:1}
   #mdbl-close{border:none;background:transparent;color:#aaa;font-size:18px;cursor:pointer;padding:4px;border-radius:8px}
   #mdbl-close:hover{background:rgba(255,255,255,0.06);color:#fff}
@@ -768,7 +767,7 @@ window.MDBL_API = {
   #mdbl-panel input[type="checkbox"]{transform:scale(1.1)}
   #mdbl-panel input[type="text"]{width:100%;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#121317;color:#eaeaea}
   #mdbl-panel select{padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#121317;color:#eaeaea}
-  #mdbl-panel .mdbl-select{width:180px} /* uniform width for both selects */
+  #mdbl-panel .mdbl-select{width:200px} /* uniform width for both selects */
   #mdbl-panel .mdbl-actions{position:sticky;bottom:0;background:rgba(22,22,26,0.96);display:flex;gap:10px;padding:12px 16px;border-top:1px solid rgba(255,255,255,0.08)}
   #mdbl-panel button{padding:9px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#1b1c20;color:#eaeaea;cursor:pointer}
   #mdbl-panel button.primary{background:#2a6df4;border-color:#2a6df4;color:#fff}
@@ -782,18 +781,18 @@ window.MDBL_API = {
   .mdbl-drag:active{cursor:grabbing}
   .mdbl-drag-handle{font-size:16px;opacity:0.6}
   .mdbl-dropping{outline:2px dashed rgba(255,255,255,0.25)}
+  /* Header toggle button styling to blend with Jellyfin toolbar */
+  .mdbl-header-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;margin-left:8px;border-radius:10px;
+    border:1px solid rgba(255,255,255,0.12);background:#1b1c20;color:#eaeaea;cursor:pointer}
+  .mdbl-header-btn:hover{background:#22252d}
+  .mdbl-header-btn img{height:16px;width:16px}
   `;
   const style = document.createElement('style');
   style.id = 'mdbl-settings-css';
   style.textContent = css;
   document.head.appendChild(style);
 
-  const gear = document.createElement('div');
-  gear.id = 'mdbl-gear';
-  gear.title = 'Jellyfin Ratings — Settings';
-  gear.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 .001 7.001A3.5 3.5 0 0 0 12 8.5zm8.94 3.09l-1.73-.29a7.2 7.2 0 0 0-.68-1.64l1.03-1.4a.75.75 0 0 0-.09-.97l-1.44-1.44a.75.75 0 0 0-.97-.09l-1.4 1.03c-.52-.29-1.07-.51-1.64-.68l-.29-1.73A.75.75 0 0 0 12.19 2h-2.38a.75.75 0 0 0-.74.63l-.29 1.73c-.57.17-1.12.39-1.64.68L5.74 4.7a.75.75 0 0 0-.97.09L3.33 6.23a.75.75 0 0 0-.09.97l1.03 1.4c-.29.52-.51 1.07-.68 1.64l-1.73.29a.75.75 0 0 0-.63.74v2.38c0 .37.27.69.63.74l1.73.29c.17.57.39 1.12.68 1.64l-1.03 1.4a.75.75 0 0 0 .09.97l1.44 1.44c.26.26.67.3.97.09l1.4-1.03c.52.29 1.07.51 1.64.68l.29 1.73c.05.36.37.63.74.63h2.38c.37 0 .69-.27.74-.63l.29-1.73c.57-.17 1.12-.39 1.64-.68l1.4 1.03c.3.21.71.17.97-.09l1.44-1.44c.26-.26.3-.67.09-.97l-1.03-1.4c.29-.52.51-1.07.68-1.64l1.73-.29c.36-.05.63-.37.63-.74v-2.38a.75.75 0 0 0-.63-.74z"/></svg>`;
-  document.body.appendChild(gear);
-
+  // Panel DOM
   const panel = document.createElement('div');
   panel.id = 'mdbl-panel';
   panel.innerHTML = `
@@ -805,7 +804,6 @@ window.MDBL_API = {
     <div class="mdbl-section" id="mdbl-sec-keys"></div>
     <div class="mdbl-section" id="mdbl-sec-sources"></div>
     <div class="mdbl-section" id="mdbl-sec-display"></div>
-    <div class="mdbl-section" id="mdbl-sec-misc"></div>
 
     <div class="mdbl-actions">
       <button id="mdbl-btn-reset">Reset</button>
@@ -814,7 +812,45 @@ window.MDBL_API = {
   `;
   document.body.appendChild(panel);
 
-  // ----- Drag & Drop helpers -----
+  // Header toggle (in details toolbar)
+  let headerBtn = null;
+  function buildHeaderBtn(){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'mdbl-header-btn';
+    b.id = 'mdbl-settings-toggle';
+    b.innerHTML = `<img alt="Settings" src="${LOGO.myanimelist}" style="display:none"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 8.5a3.5 3.5 0 1 0 .001 7.001A3.5 3.5 0 0 0 12 8.5zm8.94 3.09l-1.73-.29a7.2 7.2 0 0 0-.68-1.64l1.03-1.4a.75.75 0 0 0-.09-.97l-1.44-1.44a.75.75 0 0 0-.97-.09l-1.4 1.03c-.52-.29-1.07-.51-1.64-.68l-.29-1.73A.75.75 0 0 0 12.19 2h-2.38a.75.75 0 0 0-.74.63l-.29 1.73c-.57.17-1.12.39-1.64.68L5.74 4.7a.75.75 0 0 0-.97.09L3.33 6.23a.75.75 0 0 0-.09.97l1.03 1.4c-.29.52-.51 1.07-.68 1.64l-1.73.29a.75.75 0 0 0-.63.74v2.38c0 .37.27.69.63.74l1.73.29c.17.57.39 1.12.68 1.64l-1.03 1.4a.75.75 0 0 0 .09.97l1.44 1.44c.26.26.67.3.97.09l1.4-1.03c.52.29 1.07.51 1.64.68l.29 1.73c.05.36.37.63.74.63h2.38c.37 0 .69-.27.74-.63l.29-1.73c.57-.17 1.12-.39 1.64-.68l1.4 1.03c.3.21.71.17.97-.09l1.44-1.44c.26-.26.3-.67.09-.97l-1.03-1.4c.29-.52.51-1.07.68-1.64l1.73-.29c.36-.05.63-.37.63-.74v-2.38a.75.75 0 0 0-.63-.74z"/></svg><span>Settings</span>`;
+    b.addEventListener('click', ()=> { render(); show(); });
+    return b;
+  }
+
+  // Find details toolbar, insert our button between Play and Trailer if possible
+  function insertHeaderButton(){
+    if (headerBtn && headerBtn.isConnected) return;
+    const toolbar = document.querySelector('.detailPagePrimaryButtons, .primaryButtons, .mainDetailButtons, .detailPageButtons, .itemMainButtons');
+    if (!toolbar) return;
+
+    headerBtn = buildHeaderBtn();
+
+    const playBtn = [...toolbar.querySelectorAll('a,button')].find(el => /play/i.test(el.textContent||'') || el.dataset?.action === 'play');
+    const trailerBtn = [...toolbar.querySelectorAll('a,button')].find(el => /trailer/i.test(el.textContent||''));
+    if (playBtn && playBtn.parentNode) {
+      if (trailerBtn && trailerBtn.parentNode === playBtn.parentNode) {
+        playBtn.parentNode.insertBefore(headerBtn, trailerBtn);
+      } else {
+        playBtn.parentNode.insertBefore(headerBtn, playBtn.nextSibling);
+      }
+    } else {
+      toolbar.appendChild(headerBtn);
+    }
+  }
+
+  function show(){ panel.style.display = 'block'; }
+  function hide(){ panel.style.display = 'none'; }
+
+  panel.addEventListener('click', (e)=>{ if (e.target.id === 'mdbl-close') hide(); });
+
+  // ---- Drag & Drop for source order ----
   function buildOrderedSourceList(){
     return Object.keys(RATING_PRIORITY)
       .sort((a,b)=>(RATING_PRIORITY[a]??999)-(RATING_PRIORITY[b]??999))
@@ -871,16 +907,15 @@ window.MDBL_API = {
     }
   }
 
-  // ----- Render -----
+  // ---- Render content ----
   function render(){
-    // KEYS
+    // KEYS (only field, no heading)
     const kWrap = panel.querySelector('#mdbl-sec-keys');
     const injKey = getInjectorKey();
     const stored = getStoredKeys().MDBLIST || '';
     const readonlyAttr = injKey ? 'readonly' : '';
     const placeholder = injKey ? '(managed by injector)' : 'Enter MDBList API key';
     kWrap.innerHTML = `
-      <div class="mdbl-subtle">Keys</div>
       <label class="mdbl-subtle">MDBList API key</label>
       <input type="text" id="mdbl-key-mdb" ${readonlyAttr} placeholder="${placeholder}" value="${injKey ? injKey : (stored || '')}">
     `;
@@ -892,7 +927,7 @@ window.MDBL_API = {
     buildOrderedSourceList().forEach(k=> sList.appendChild(makeSourceRow(k)));
     enableDnD(sList);
 
-    // DISPLAY (single column, aligned selects same width)
+    // DISPLAY (icons only + ends bullet under it; aligned selects same width)
     const dWrap = panel.querySelector('#mdbl-sec-display');
     dWrap.innerHTML = `
       <div class="mdbl-subtle">Display</div>
@@ -900,6 +935,7 @@ window.MDBL_API = {
       <label class="mdbl-row"><span>Colorize ratings</span><input type="checkbox" id="d_colorize" ${DISPLAY.colorizeRatings?'checked':''}></label>
       <label class="mdbl-row"><span>Numbers only colored</span><input type="checkbox" id="d_colorNumsOnly" ${DISPLAY.colorizeNumbersOnly?'checked':''}></label>
       <label class="mdbl-row"><span>Icons only</span><input type="checkbox" id="d_iconsOnly" ${DISPLAY.iconsOnly?'checked':''}></label>
+      <label class="mdbl-row"><span>Show bullet before “Ends at”</span><input type="checkbox" id="d_endsBullet" ${DISPLAY.endsAtBullet?'checked':''}></label>
       <label class="mdbl-row">
         <span>Align</span>
         <select id="d_align" class="mdbl-select">
@@ -916,23 +952,37 @@ window.MDBL_API = {
         </select>
       </label>
     `;
-
-    // MISC (Ends-at bullet as last, single line)
-    const mWrap = panel.querySelector('#mdbl-sec-misc');
-    mWrap.innerHTML = `
-      <div class="mdbl-subtle">Other</div>
-      <label class="mdbl-row"><span>Show bullet before “Ends at”</span><input type="checkbox" id="d_endsBullet" ${DISPLAY.endsAtBullet?'checked':''}></label>
-    `;
   }
 
-  function show(){ panel.style.display = 'block'; }
-  function hide(){ panel.style.display = 'none'; }
+  // Visibility rules: only on item page, hide during playback
+  function isPlaybackPage(){
+    return !!(document.querySelector('video') || document.querySelector('.videoPlayer, .osdButtons, .videoosd, .nowPlayingPage'));
+  }
+  function isItemDetailsPage(){
+    // robust: presence of details misc info + primary buttons
+    return !!(document.querySelector('.itemMiscInfo-primary, .itemMiscInfo.itemMiscInfo-primary, .detailPage, .itemDetailPage, .itemDetailsPage') &&
+              document.querySelector('.detailPagePrimaryButtons, .primaryButtons, .mainDetailButtons, .detailPageButtons, .itemMainButtons'));
+  }
 
-  gear.addEventListener('click', () => {
-    if (panel.style.display === 'block') hide(); else { render(); show(); }
-  });
-  panel.querySelector('#mdbl-close').addEventListener('click', hide);
+  function updateHeaderButtonPresence(){
+    // Remove if should not show
+    if (!isItemDetailsPage() || isPlaybackPage()){
+      if (headerBtn && headerBtn.isConnected) headerBtn.remove();
+      hide();
+      return;
+    }
+    // Insert if needed
+    insertHeaderButton();
+  }
 
+  // Observe DOM changes to (re)place the header button according to page state
+  const visObs = new MutationObserver(()=>updateHeaderButtonPresence());
+  visObs.observe(document.body, { childList:true, subtree:true });
+
+  // Initial check
+  updateHeaderButtonPresence();
+
+  // Buttons
   panel.querySelector('#mdbl-btn-reset').addEventListener('click', ()=>{
     Object.assign(ENABLE_SOURCES, deepClone(DEFAULTS.sources));
     Object.assign(DISPLAY,         deepClone(DEFAULTS.display));
@@ -972,9 +1022,12 @@ window.MDBL_API = {
 
     if (window.MDBL_API && typeof window.MDBL_API.refresh==='function') window.MDBL_API.refresh();
 
-    // full reload
+    // full reload to apply everywhere
     location.reload();
   });
+
+  function show(){ panel.style.display = 'block'; }
+  function hide(){ panel.style.display = 'none'; }
 
 })();
 
