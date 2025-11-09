@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (GitHub build, accepts window.MDBL_CFG)
+// @name         Jellyfin Ratings (v6.3.2 — RT via MDBList + Fallback)
 // @namespace    https://mdblist.com
-// @version      6.3.1-github
+// @version      6.3.2
 // @description  Unified ratings for Jellyfin 10.11.x (IMDb, TMDb, Trakt, Letterboxd, AniList, MAL, RT critic+audience, Roger Ebert, Metacritic critic+user). Normalized 0–100, colorized; custom inline “Ends at …” (12h/24h + bullet toggle) with strict dedupe; parental rating cloned to start; single MutationObserver; namespaced caches; tidy helpers and styles.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
@@ -80,22 +80,21 @@ const MDBLIST_API_KEY = 'hehfnbo9y8blfyqm1d37ikubl';
 const CACHE_DURATION  = 7 * 24 * 60 * 60 * 1000; // 7 days
 const NS              = 'mdbl_';                 // localStorage prefix
 
-/* 🖼️ LOGOS */
-const BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
+/* 🖼️ LOGOS (point to your own repo paths) */
+const ICON_BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
 const LOGO = {
-  imdb: `${BASE}/IMDb.png`,
-  tmdb: `${BASE}/TMDB.png`,
-  trakt: `${BASE}/Trakt.png`,
-  letterboxd: `${BASE}/letterboxd.png`,
-  anilist: `${BASE}/anilist.png`,
-  myanimelist: `${BASE}/mal.png`,
-  roger: `${BASE}/Roger_Ebert.png`,
-  tomatoes: `${BASE}/Rotten_Tomatoes.png`,
-  audience: `${BASE}/Rotten_Tomatoes_positive_audience.png`,
-  metacritic: `${BASE}/Metacritic.png`,
-  metacritic_user: `${BASE}/mus2.png`,
+  imdb:            `${ICON_BASE}/IMDb.png`,
+  tmdb:            `${ICON_BASE}/TMDB.png`,
+  trakt:           `${ICON_BASE}/Trakt.png`,
+  letterboxd:      `${ICON_BASE}/letterboxd.png`,
+  anilist:         `${ICON_BASE}/anilist.png`,
+  myanimelist:     `${ICON_BASE}/mal.png`,
+  roger:           `${ICON_BASE}/Roger_Ebert.png`,
+  tomatoes:        `${ICON_BASE}/Rotten_Tomatoes.png`,
+  audience:        `${ICON_BASE}/Rotten_Tomatoes_positive_audience.png`,
+  metacritic:      `${ICON_BASE}/Metacritic.png`,
+  metacritic_user: `${ICON_BASE}/mus2.png`,
 };
-
 
 /* ======================================================
    MERGE CONFIG FROM INJECTOR (window.MDBL_CFG) IF PRESENT
@@ -110,6 +109,7 @@ const RATING_PRIORITY = Object.assign({}, DEFAULT_PRIORITIES,     __CFG__.priori
    POLYFILL (for browsers without GM_xmlhttpRequest)
 ====================================================== */
 if (typeof GM_xmlhttpRequest === 'undefined') {
+  // If you prefer to avoid third-party proxies entirely, replace this block with a direct fetch-only polyfill.
   const PROXIES = [
     'https://api.allorigins.win/raw?url=',
     'https://api.codetabs.com/v1/proxy?quest='
@@ -143,13 +143,9 @@ const Util = {
 
 (function ensureStyleTag(){
   if (document.getElementById('mdblist-styles')) return;
-  const css = `
-    /* reserved for future global styles */
-    .mdblist-rating-container { }
-  `;
   const style = document.createElement('style');
   style.id = 'mdblist-styles';
-  style.textContent = css;
+  style.textContent = `.mdblist-rating-container{}`;
   document.head.appendChild(style);
 })();
 
@@ -158,9 +154,6 @@ const Util = {
 ====================================================== */
 (function(){
 'use strict';
-
-// Early exit if not on a Jellyfin item page (keeps script harmless elsewhere)
-if (!document.body) return;
 
 let currentImdbId = null;
 
@@ -172,10 +165,10 @@ function removeBuiltInEndsAt(){
     if (/\bends\s+at\b/i.test(txt)) row.remove();
   });
 
-  // 2) Remove stray “Ends at” inside the info panel, EXCEPT our #customEndsAt
+  // 2) Remove stray “Ends at” anywhere in panel, EXCEPT our #customEndsAt
   const ours = document.getElementById('customEndsAt');
   document.querySelectorAll('.itemMiscInfo span, .itemMiscInfo div').forEach(el => {
-    if (el === ours || (ours && ours.contains(el))) return; // keep ours
+    if (el === ours || (ours && ours.contains(el))) return;
     const txt = (el.textContent || '');
     if (/\bends\s+at\b/i.test(txt)) el.remove();
   });
@@ -423,6 +416,7 @@ function appendRating(container, logo, val, title, key, link){
     .forEach(el=>container.appendChild(el));
 }
 
+/* -------- Fetch ratings (MDBList primary, extra sources + RT fallback) -------- */
 function fetchRatings(tmdbId, imdbId, container, type='movie'){
   GM_xmlhttpRequest({
     method:'GET',
@@ -435,29 +429,48 @@ function fetchRatings(tmdbId, imdbId, container, type='movie'){
       d.ratings?.forEach(rr=>{
         const s = (rr.source||'').toLowerCase();
         const v = rr.value;
+
         if (s.includes('imdb') && ENABLE_SOURCES.imdb)
           appendRating(container, LOGO.imdb, v, 'IMDb', 'imdb', `https://www.imdb.com/title/${imdbId}/`);
+
         else if (s.includes('tmdb') && ENABLE_SOURCES.tmdb)
           appendRating(container, LOGO.tmdb, v, 'TMDb', 'tmdb', `https://www.themoviedb.org/${type}/${tmdbId}`);
+
         else if (s.includes('trakt') && ENABLE_SOURCES.trakt)
           appendRating(container, LOGO.trakt, v, 'Trakt', 'trakt', `https://trakt.tv/search/imdb/${imdbId}`);
+
         else if (s.includes('letterboxd') && ENABLE_SOURCES.letterboxd)
           appendRating(container, LOGO.letterboxd, v, 'Letterboxd', 'letterboxd', `https://letterboxd.com/imdb/${imdbId}/`);
+
+        // ==== NEW: RT from MDBList when present ====
+        else if ((s === 'tomatoes' || s.includes('rotten_tomatoes')) && ENABLE_SOURCES.rotten_tomatoes) {
+          const rtSearch = title ? `https://www.rottentomatoes.com/search?search=${encodeURIComponent(title)}` : '#';
+          appendRating(container, LOGO.tomatoes, v, 'RT Critic', 'rotten_tomatoes_critic', rtSearch);
+        }
+        else if ((s.includes('popcorn') || s.includes('audience')) && ENABLE_SOURCES.rotten_tomatoes) {
+          const rtSearch = title ? `https://www.rottentomatoes.com/search?search=${encodeURIComponent(title)}` : '#';
+          appendRating(container, LOGO.audience, v, 'RT Audience', 'rotten_tomatoes_audience', rtSearch);
+        }
+        // ============================================
+
         else if (s === 'metacritic' && ENABLE_SOURCES.metacritic_critic){
           const seg=(container.dataset.type==='show')?'tv':'movie';
           const link=slug?`https://www.metacritic.com/${seg}/${slug}`:`https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
           appendRating(container, LOGO.metacritic, v, 'Metacritic (Critic)', 'metacritic_critic', link);
-        } else if (s.includes('metacritic') && s.includes('user') && ENABLE_SOURCES.metacritic_user){
+        }
+        else if (s.includes('metacritic') && s.includes('user') && ENABLE_SOURCES.metacritic_user){
           const seg=(container.dataset.type==='show')?'tv':'movie';
           const link=slug?`https://www.metacritic.com/${seg}/${slug}`:`https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
           appendRating(container, LOGO.metacritic_user, v, 'Metacritic (User)', 'metacritic_user', link);
-        } else if (s.includes('roger') && ENABLE_SOURCES.roger_ebert)
+        }
+        else if (s.includes('roger') && ENABLE_SOURCES.roger_ebert)
           appendRating(container, LOGO.roger, v, 'Roger Ebert', 'roger_ebert', `https://www.rogerebert.com/reviews/${slug}`);
       });
 
-      if (ENABLE_SOURCES.anilist)         fetchAniList(imdbId, container);
-      if (ENABLE_SOURCES.myanimelist)     fetchMAL(imdbId, container);
-      if (ENABLE_SOURCES.rotten_tomatoes) fetchRT(imdbId, container);
+      // Extra sources + RT fallback
+      if (ENABLE_SOURCES.anilist)           fetchAniList(imdbId, container);
+      if (ENABLE_SOURCES.myanimelist)       fetchMAL(imdbId, container);
+      if (ENABLE_SOURCES.rotten_tomatoes)   fetchRT(imdbId, container); // fallback if MDBList lacks RT
     }
   });
 }
@@ -560,9 +573,9 @@ function fetchRT(imdbId, container){
 
   function addRT(c, s){
     if (Util.validNumber(s.critic))
-      appendRating(c, LOGO.tomatoes, s.critic, 'RT Critic', 'rotten_tomatoes_critic', s.link);
+      appendRating(c, LOGO.tomatoes, s.critic, 'RT Critic', 'rotten_tomatoes_critic', s.link || '#');
     if (Util.validNumber(s.audience))
-      appendRating(c, LOGO.audience, s.audience, 'RT Audience', 'rotten_tomatoes_audience', s.link);
+      appendRating(c, LOGO.audience, s.audience, 'RT Audience', 'rotten_tomatoes_audience', s.link || '#');
   }
 }
 
