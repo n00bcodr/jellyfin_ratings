@@ -1,27 +1,22 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.3.3 — RT via MDBList + Fallback)
+// @name         Jellyfin Ratings (v6.3.4 — RT via MDBList + Fallback)
 // @namespace    https://mdblist.com
-// @version      6.3.3
-// @description  Unified ratings for Jellyfin 10.11.x (IMDb, TMDb, Trakt, Letterboxd, AniList, MAL, RT critic+audience, Roger Ebert, Metacritic critic+user). Normalized 0–100, colorized; custom inline “Ends at …” (12h/24h + bullet toggle) with strict dedupe; parental rating cloned to start; single MutationObserver; namespaced caches; tidy helpers and styles.
+// @version      6.3.4
+// @description  Unified ratings for Jellyfin 10.11.x (IMDb, TMDb, Trakt, Letterboxd, AniList, MAL, RT critic+audience, Roger Ebert, Metacritic critic+user). Normalized 0–100, colorized; custom inline “Ends at …”; parental badge cloned to start; debounced single observer; namespaced caches; tidy helpers and styles.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
 /* ======================================================
-   DEFAULT CONFIG (works standalone)
-   You can override any of these via window.MDBL_CFG in your injector.
+   DEFAULT CONFIG (overridable via window.MDBL_CFG)
 ====================================================== */
-
-/* 🎬 SOURCES (defaults) */
 const DEFAULT_ENABLE_SOURCES = {
   imdb:                     true,
   tmdb:                     true,
   trakt:                    true,
   letterboxd:               true,
-  // Split Rotten Tomatoes toggles
   rotten_tomatoes_critic:   true,
   rotten_tomatoes_audience: true,
-  // Split Metacritic toggles (already split in your codebase)
   metacritic_critic:        true,
   metacritic_user:          true,
   roger_ebert:              true,
@@ -29,61 +24,38 @@ const DEFAULT_ENABLE_SOURCES = {
   myanimelist:              true
 };
 
-/* 🎨 DISPLAY (defaults) */
 const DEFAULT_DISPLAY = {
-  showPercentSymbol:      true,   // show “%”
-  colorizeRatings:        true,   // colorize ratings
-  colorizeNumbersOnly:    true,   // true: number only; false: number + icon glow
-  align:                  'left', // 'left' | 'center' | 'right'
-  endsAtFormat:           '24h',  // '24h' | '12h'
-  endsAtBullet:           true    // show bullet • before “Ends at …”
+  showPercentSymbol:      true,
+  colorizeRatings:        true,
+  colorizeNumbersOnly:    true,
+  align:                  'left',
+  endsAtFormat:           '24h',
+  endsAtBullet:           true
 };
 
-/* 📏 SPACING (defaults) */
-const DEFAULT_SPACING = {
-  ratingsTopGapPx:        8       // gap between first row and ratings row
-};
+const DEFAULT_SPACING = { ratingsTopGapPx: 8 };
 
-/* 🧮 SORT ORDER (defaults; lower appears earlier) */
 const DEFAULT_PRIORITIES = {
-  imdb:                     1,
-  tmdb:                     2,
-  trakt:                    3,
-  letterboxd:               4,
-  rotten_tomatoes_critic:   5,
-  rotten_tomatoes_audience: 6,
-  roger_ebert:              7,
-  metacritic_critic:        8,
-  metacritic_user:          9,
-  anilist:                  10,
-  myanimelist:              11
+  imdb: 1, tmdb: 2, trakt: 3, letterboxd: 4,
+  rotten_tomatoes_critic: 5, rotten_tomatoes_audience: 6,
+  roger_ebert: 7, metacritic_critic: 8, metacritic_user: 9,
+  anilist: 10, myanimelist: 11
 };
 
-/* ⚙️ NORMALIZATION (→ 0–100) */
 const SCALE_MULTIPLIER = {
-  imdb:                     10,
-  tmdb:                      1,
-  trakt:                     1,
-  letterboxd:               20,
-  roger_ebert:              25,
-  metacritic_critic:         1,
-  metacritic_user:          10,
-  myanimelist:              10,
-  anilist:                   1,
-  rotten_tomatoes_critic:    1,
-  rotten_tomatoes_audience:  1
+  imdb: 10, tmdb: 1, trakt: 1, letterboxd: 20,
+  roger_ebert: 25, metacritic_critic: 1, metacritic_user: 10,
+  myanimelist: 10, anilist: 1,
+  rotten_tomatoes_critic: 1, rotten_tomatoes_audience: 1
 };
 
-/* 🎨 COLORS */
 const COLOR_THRESHOLDS = { green: 75, orange: 50, red: 0 };
 const COLOR_VALUES     = { green: 'limegreen', orange: 'orange', red: 'crimson' };
 
-/* 🔑 API KEY + CACHE (namespaced) */
 const MDBLIST_API_KEY = 'hehfnbo9y8blfyqm1d37ikubl';
 const CACHE_DURATION  = 7 * 24 * 60 * 60 * 1000; // 7 days
-const NS              = 'mdbl_';                 // localStorage prefix
+const NS = 'mdbl_';
 
-/* 🖼️ LOGOS (point to your own repo paths) */
 const ICON_BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
 const LOGO = {
   imdb:            `${ICON_BASE}/IMDb.png`,
@@ -99,24 +71,17 @@ const LOGO = {
   metacritic_user: `${ICON_BASE}/mus2.png`,
 };
 
-/* ======================================================
-   MERGE CONFIG FROM INJECTOR (window.MDBL_CFG) IF PRESENT
-====================================================== */
+/* merge injector config */
 const __CFG__ = (typeof window !== 'undefined' && window.MDBL_CFG) ? window.MDBL_CFG : {};
 const ENABLE_SOURCES  = Object.assign({}, DEFAULT_ENABLE_SOURCES, __CFG__.sources   || {});
 const DISPLAY         = Object.assign({}, DEFAULT_DISPLAY,        __CFG__.display   || {});
 const SPACING         = Object.assign({}, DEFAULT_SPACING,        __CFG__.spacing   || {});
 const RATING_PRIORITY = Object.assign({}, DEFAULT_PRIORITIES,     __CFG__.priorities|| {});
 
-/* ======================================================
-   POLYFILL (for browsers without GM_xmlhttpRequest)
-====================================================== */
+/* polyfill for GM_xmlhttpRequest-less environments */
 if (typeof GM_xmlhttpRequest === 'undefined') {
-  const PROXIES = [
-    'https://api.allorigins.win/raw?url=',
-    'https://api.codetabs.com/v1/proxy?quest='
-  ];
-  const DIRECT = ['api.mdblist.com','graphql.anilist.co','query.wikidata.org','api.themoviedb.org'];
+  const PROXIES = ['https://api.allorigins.win/raw?url=','https://api.codetabs.com/v1/proxy?quest='];
+  const DIRECT  = ['api.mdblist.com','graphql.anilist.co','query.wikidata.org','api.themoviedb.org'];
   window.GM_xmlhttpRequest = ({ method='GET', url, headers={}, data, onload, onerror }) => {
     const isDirect = DIRECT.some(d => url.includes(d));
     const proxy = PROXIES[Math.floor(Math.random() * PROXIES.length)];
@@ -128,19 +93,13 @@ if (typeof GM_xmlhttpRequest === 'undefined') {
   };
 }
 
-/* ======================================================
-   HELPERS & STYLES
-====================================================== */
+/* tiny helpers */
 const Util = {
-  pad(n){ return String(n).padStart(2,'0'); },
-  validNumber(v){ const n = parseFloat(v); return !isNaN(n); },
-  round(v){ return Math.round(parseFloat(v)); },
-  normalize(v, src){
-    const m = SCALE_MULTIPLIER[(src||'').toLowerCase()] || 1;
-    const x = parseFloat(v);
-    return isNaN(x) ? null : x * m;
-  },
-  slug(t){ return (t||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,''); }
+  pad:n=>String(n).padStart(2,'0'),
+  validNumber:v=>!isNaN(parseFloat(v)),
+  round:v=>Math.round(parseFloat(v)),
+  normalize:(v,src)=>{ const m=SCALE_MULTIPLIER[(src||'').toLowerCase()]||1, x=parseFloat(v); return isNaN(x)?null:x*m; },
+  slug:t=>(t||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')
 };
 
 (function ensureStyleTag(){
@@ -152,347 +111,220 @@ const Util = {
 })();
 
 /* ======================================================
-   CORE LOGIC (single observer → debounced updateAll)
+   CORE
 ====================================================== */
 (function(){
 'use strict';
 
 let currentImdbId = null;
+/* store optional counts for icon tooltips */
+const COUNT_REG = Object.create(null); // key -> count (number or string)
 
-/* -------- Strictly remove any non-inline (ours) “Ends at …” -------- */
+/* strip duplicate/non-inline "Ends at" */
 function removeBuiltInEndsAt(){
-  // 1) Remove Jellyfin's secondary line containing Ends at
-  document.querySelectorAll('.itemMiscInfo-secondary').forEach(row => {
-    const txt = (row.textContent || '');
-    if (/\bends\s+at\b/i.test(txt)) row.remove();
+  document.querySelectorAll('.itemMiscInfo-secondary').forEach(row=>{
+    if (/\bends\s+at\b/i.test(row.textContent||'')) row.remove();
   });
-
-  // 2) Remove stray “Ends at” anywhere in panel, EXCEPT our #customEndsAt
   const ours = document.getElementById('customEndsAt');
-  document.querySelectorAll('.itemMiscInfo span, .itemMiscInfo div').forEach(el => {
-    if (el === ours || (ours && ours.contains(el))) return;
-    const txt = (el.textContent || '');
-    if (/\bends\s+at\b/i.test(txt)) el.remove();
+  document.querySelectorAll('.itemMiscInfo span, .itemMiscInfo div').forEach(el=>{
+    if (el===ours || (ours && ours.contains(el))) return;
+    if (/\bends\s+at\b/i.test((el.textContent||''))) el.remove();
   });
 }
 
-/* -------- Parental rating: clone to start, hide original -------- */
+/* parental badge clone to front */
 function ensureInlineBadge(){
-  const primary = findPrimaryRow();
-  if (!primary) return;
-
-  const ratingValue = readAndHideOriginalBadge();
-  if (!ratingValue) return;
-
+  const primary = findPrimaryRow(); if (!primary) return;
+  const ratingValue = readAndHideOriginalBadge(); if (!ratingValue) return;
   if (primary.querySelector('#mdblistInlineParental')) return;
-
   const before = findYearChip(primary) || primary.firstChild;
-
   const badge = document.createElement('span');
-  badge.id = 'mdblistInlineParental';
-  badge.textContent = ratingValue;
-  Object.assign(badge.style,{
-    display:'inline-flex',
-    alignItems:'center',
-    justifyContent:'center',
-    padding:'2px 6px',
-    borderRadius:'6px',
-    fontWeight:'600',
-    fontSize:'0.9em',
-    lineHeight:'1',
-    background:'var(--theme-primary-color, rgba(255,255,255,0.12))',
-    color:'var(--theme-text-color, #ddd)',
-    marginRight:'10px',
-    whiteSpace:'nowrap',
-    flex:'0 0 auto',
-    verticalAlign:'middle'
-  });
-  if (before && before.parentNode) before.parentNode.insertBefore(badge,before);
-  else primary.insertBefore(badge,primary.firstChild);
+  badge.id='mdblistInlineParental'; badge.textContent = ratingValue;
+  Object.assign(badge.style,{display:'inline-flex',alignItems:'center',justifyContent:'center',padding:'2px 6px',borderRadius:'6px',
+    fontWeight:'600',fontSize:'0.9em',lineHeight:'1',background:'var(--theme-primary-color, rgba(255,255,255,0.12))',
+    color:'var(--theme-text-color,#ddd)',marginRight:'10px',whiteSpace:'nowrap',flex:'0 0 auto',verticalAlign:'middle'});
+  (before && before.parentNode) ? before.parentNode.insertBefore(badge,before) : primary.insertBefore(badge,primary.firstChild);
 }
-
-function findPrimaryRow(){
-  return document.querySelector('.itemMiscInfo.itemMiscInfo-primary')
-      || document.querySelector('.itemMiscInfo-primary')
-      || document.querySelector('.itemMiscInfo');
-}
+const findPrimaryRow=()=>document.querySelector('.itemMiscInfo.itemMiscInfo-primary')||document.querySelector('.itemMiscInfo-primary')||document.querySelector('.itemMiscInfo');
 function findYearChip(primary){
-  const chips = primary.querySelectorAll('.mediaInfoItem, .mediaInfoText, span, div');
-  for (const el of chips){
-    const t = (el.textContent || '').trim();
-    if (/^\d{4}$/.test(t)) return el;
-  }
-  return null;
+  for (const el of primary.querySelectorAll('.mediaInfoItem, .mediaInfoText, span, div')){
+    const t=(el.textContent||'').trim(); if (/^\d{4}$/.test(t)) return el;
+  } return null;
 }
 function readAndHideOriginalBadge(){
   let original = document.querySelector('.mediaInfoItem.mediaInfoText.mediaInfoOfficialRating')
-               || document.querySelector('.mediaInfoItem.mediaInfoText[data-type="officialRating"]');
-  if (!original) {
-    const candidates=[...document.querySelectorAll('.itemMiscInfo .mediaInfoItem, .itemMiscInfo .mediaInfoText, .itemMiscInfo span')];
-    original = candidates.find(el=>{
-      const t=(el.textContent||'').trim();
-      return /^[A-Z0-9][A-Z0-9\-+]{0,5}$/.test(t) && !/^\d{4}$/.test(t);
-    }) || null;
+             || document.querySelector('.mediaInfoItem.mediaInfoText[data-type="officialRating"]');
+  if (!original){
+    original=[...document.querySelectorAll('.itemMiscInfo .mediaInfoItem, .itemMiscInfo .mediaInfoText, .itemMiscInfo span')]
+      .find(el=>{ const t=(el.textContent||'').trim(); return /^[A-Z0-9][A-Z0-9\-+]{0,5}$/.test(t)&&!/^\d{4}$/.test(t); })||null;
   }
   if (!original) return null;
-  const value = (original.textContent || '').trim();
-  original.style.display='none';
-  return value || null;
+  const value=(original.textContent||'').trim(); original.style.display='none'; return value||null;
 }
 
-/* -------- Custom EndsAt on first row (12h/24h + bullet toggle) -------- */
+/* inline Ends at */
 function ensureEndsAtInline(){
   const primary = findPrimaryRow(); if (!primary) return;
-
-  // Locate runtime chip (e.g., "1h 42m", "98m")
-  const {node: anchorNode, minutes} = findRuntimeNode(primary);
-  if (!anchorNode || !minutes) return;
-
-  const end = new Date(Date.now() + minutes * 60000);
-  const timeStr = formatEndTime(end);
-  const prefix  = DISPLAY.endsAtBullet ? ' • ' : '';
-  const content = `${prefix}Ends at ${timeStr}`;
-
-  let span = primary.querySelector('#customEndsAt');
+  const {node, minutes} = findRuntimeNode(primary); if (!node||!minutes) return;
+  const end=new Date(Date.now()+minutes*60000), timeStr=formatEndTime(end), prefix=DISPLAY.endsAtBullet?' • ':'';
+  const content=`${prefix}Ends at ${timeStr}`;
+  let span=primary.querySelector('#customEndsAt');
   if (!span){
-    span = document.createElement('span');
-    span.id = 'customEndsAt';
-    // match first-row style with tight gap
-    span.style.marginLeft    = '6px';
-    span.style.color         = 'inherit';
-    span.style.opacity       = '1';
-    span.style.fontSize      = 'inherit';
-    span.style.fontWeight    = 'inherit';
-    span.style.whiteSpace    = 'nowrap';
-    span.style.display       = 'inline';
-    if (anchorNode.nextSibling) anchorNode.parentNode.insertBefore(span, anchorNode.nextSibling);
-    else anchorNode.parentNode.appendChild(span);
+    span=document.createElement('span'); span.id='customEndsAt';
+    Object.assign(span.style,{marginLeft:'6px',color:'inherit',opacity:'1',fontSize:'inherit',fontWeight:'inherit',whiteSpace:'nowrap',display:'inline'});
+    (node.nextSibling)?node.parentNode.insertBefore(span,node.nextSibling):node.parentNode.appendChild(span);
   }
-  span.textContent = content;
+  span.textContent=content;
 }
 function formatEndTime(d){
-  if (DISPLAY.endsAtFormat === '12h') {
-    let h = d.getHours();
-    const m = Util.pad(d.getMinutes());
-    const suffix = h >= 12 ? 'PM' : 'AM';
-    h = h % 12 || 12;
-    return `${h}:${m} ${suffix}`;
+  if (DISPLAY.endsAtFormat==='12h'){
+    let h=d.getHours(); const m=Util.pad(d.getMinutes()), suf=h>=12?'PM':'AM'; h=h%12||12; return `${h}:${m} ${suf}`;
   }
   return `${Util.pad(d.getHours())}:${Util.pad(d.getMinutes())}`;
 }
 function findRuntimeNode(primary){
-  const chips = primary.querySelectorAll('.mediaInfoItem, .mediaInfoText, span, div');
-  for (const el of chips){
-    const t=(el.textContent||'').trim();
-    const mins=parseRuntimeToMinutes(t);
-    if (mins>0) return {node:el, minutes:mins};
+  for (const el of primary.querySelectorAll('.mediaInfoItem, .mediaInfoText, span, div')){
+    const mins=parseRuntimeToMinutes((el.textContent||'').trim()); if (mins>0) return {node:el, minutes:mins};
   }
-  const t=(primary.textContent||'').trim();
-  const mins=parseRuntimeToMinutes(t);
-  return mins>0 ? {node:primary, minutes:mins} : {node:null, minutes:0};
+  const mins=parseRuntimeToMinutes((primary.textContent||'').trim()); return mins>0?{node:primary, minutes:mins}:{node:null, minutes:0};
 }
 function parseRuntimeToMinutes(text){
   if (!text) return 0;
-  const re = /(?:(\d+)\s*h(?:ours?)?\s*)?(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i;
-  const m = text.match(re);
-  if (!m) return 0;
-  const h = parseInt(m[1]||'0',10);
-  const min = parseInt(m[2]||'0',10);
-  if (h===0 && min===0) {
-    const onlyMin = text.match(/(\d+)\s*m(?:in(?:utes?)?)?/i);
-    return onlyMin ? parseInt(onlyMin[1],10) : 0;
-  }
-  return h*60 + min;
+  const m=text.match(/(?:(\d+)\s*h(?:ours?)?\s*)?(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i);
+  if(!m) return 0; const h=parseInt(m[1]||'0',10), min=parseInt(m[2]||'0',10);
+  if(h===0&&min===0){ const only=text.match(/(\d+)\s*m(?:in(?:utes?)?)?/i); return only?parseInt(only[1],10):0; }
+  return h*60+min;
 }
 
-/* -------- Ratings: scan rows, insert containers, fetch once -------- */
+/* containers + scan */
 function hideDefaultRatingsOnce(){
   document.querySelectorAll('.itemMiscInfo.itemMiscInfo-primary').forEach(box=>{
-    box.querySelectorAll('.starRatingContainer,.mediaInfoCriticRating').forEach(el=>{ el.style.display='none'; });
+    box.querySelectorAll('.starRatingContainer,.mediaInfoCriticRating').forEach(el=>el.style.display='none');
   });
 }
-
 function scanLinks(){
-  // Track current IMDb id; reset containers when tt changes
   document.querySelectorAll('a.emby-button[href*="imdb.com/title/"]').forEach(a=>{
-    if (a.dataset.mdblSeen === '1') return;
-    a.dataset.mdblSeen = '1';
-    const m=a.href.match(/imdb\.com\/title\/(tt\d+)/);
-    if (!m) return;
-    const id = m[1];
-    if (id !== currentImdbId){
-      document.querySelectorAll('.mdblist-rating-container').forEach(el=>el.remove());
-      currentImdbId = id;
-    }
+    if (a.dataset.mdblSeen==='1') return; a.dataset.mdblSeen='1';
+    const m=a.href.match(/imdb\.com\/title\/(tt\d+)/); if(!m) return;
+    const id=m[1]; if (id!==currentImdbId){ document.querySelectorAll('.mdblist-rating-container').forEach(el=>el.remove()); currentImdbId=id; }
   });
-
-  // Insert ratings containers for each TMDb link
   [...document.querySelectorAll('a.emby-button[href*="themoviedb.org/"]')].forEach(a=>{
-    if (a.dataset.mdblProc === '1') return;
-    const m=a.href.match(/themoviedb\.org\/(movie|tv)\/(\d+)/);
-    if (!m) return;
-    a.dataset.mdblProc = '1';
-    const type = m[1] === 'tv' ? 'show' : 'movie';
-    const tmdbId = m[2];
-
+    if (a.dataset.mdblProc==='1') return; const m=a.href.match(/themoviedb\.org\/(movie|tv)\/(\d+)/); if(!m) return;
+    a.dataset.mdblProc='1'; const type=m[1]==='tv'?'show':'movie', tmdbId=m[2];
     document.querySelectorAll('.itemMiscInfo.itemMiscInfo-primary').forEach(b=>{
-      const ref=b.querySelector('.mediaInfoItem.mediaInfoText.mediaInfoOfficialRating') || b.querySelector('.mediaInfoItem:last-of-type');
-      if (!ref) return;
-
-      // Avoid duplicating container right next to ref
+      const ref=b.querySelector('.mediaInfoItem.mediaInfoText.mediaInfoOfficialRating')||b.querySelector('.mediaInfoItem:last-of-type'); if(!ref) return;
       if (ref.nextElementSibling && ref.nextElementSibling.classList?.contains('mdblist-rating-container')) return;
-
-      const div = document.createElement('div');
-      div.className = 'mdblist-rating-container';
-      const justify     = DISPLAY.align==='center' ? 'center' : DISPLAY.align==='left' ? 'flex-start' : 'flex-end';
-      const paddingRight= DISPLAY.align==='right' ? '6px' : '0';
-      div.style = `
-        display:flex;
-        flex-wrap:wrap;
-        align-items:center;
-        justify-content:${justify};
-        width:calc(100% + 6px);
-        margin-left:-6px;                    /* left nudge (prevents IMDb crop) */
-        margin-top:${SPACING.ratingsTopGapPx}px;
-        padding-right:${paddingRight};
-        box-sizing:border-box;
-      `;
-      div.dataset.type = type;
-      div.dataset.tmdbId = tmdbId;
-      div.dataset.mdblFetched = '0';
-      ref.insertAdjacentElement('afterend', div);
+      const div=document.createElement('div'); div.className='mdblist-rating-container';
+      const justify = DISPLAY.align==='center'?'center':DISPLAY.align==='left'?'flex-start':'flex-end';
+      const paddingRight = DISPLAY.align==='right'?'6px':'0';
+      div.style=`display:flex;flex-wrap:wrap;align-items:center;justify-content:${justify};width:calc(100% + 6px);margin-left:-6px;margin-top:${SPACING.ratingsTopGapPx}px;padding-right:${paddingRight};box-sizing:border-box;`;
+      Object.assign(div.dataset,{type, tmdbId, mdblFetched:'0'}); ref.insertAdjacentElement('afterend',div);
     });
   });
-
   hideDefaultRatingsOnce();
 }
-
 function updateRatings(){
   document.querySelectorAll('.mdblist-rating-container').forEach(c=>{
-    if (c.dataset.mdblFetched === '1') return;
-    const type   = c.dataset.type || 'movie';
-    const tmdbId = c.dataset.tmdbId;
-    if (!tmdbId) return;
-    c.dataset.mdblFetched = '1';
-    fetchRatings(tmdbId, currentImdbId, c, type);
+    if (c.dataset.mdblFetched==='1') return; const type=c.dataset.type||'movie', tmdbId=c.dataset.tmdbId; if (!tmdbId) return;
+    c.dataset.mdblFetched='1'; fetchRatings(tmdbId, currentImdbId, c, type);
   });
 }
 
-/* --------- core render: icons link out, numbers open settings --------- */
-function appendRating(container, logo, val, title, key, link){
+/* render one badge — icon links out, number opens settings; icon tooltip may show counts */
+function appendRating(container, logo, val, title, key, link, count){
   if (!Util.validNumber(val)) return;
-  const n = Util.normalize(val, key);
-  if (!Util.validNumber(n)) return;
-  const r = Util.round(n);
-  const disp = DISPLAY.showPercentSymbol ? `${r}%` : `${r}`;
+  const n=Util.normalize(val,key); if(!Util.validNumber(n)) return;
+  const r=Util.round(n), disp=DISPLAY.showPercentSymbol?`${r}%`:`${r}`;
   if (container.querySelector(`[data-source="${key}"]`)) return;
 
-  const wrap = document.createElement('div');
-  wrap.dataset.source = key;
-  wrap.style = 'display:inline-flex;align-items:center;margin:0 6px;gap:3px;';
+  const wrap=document.createElement('div');
+  wrap.dataset.source=key;
+  wrap.style='display:inline-flex;align-items:center;margin:0 6px;gap:3px;';
 
-  // icon (link out)
-  const a = document.createElement('a');
-  a.href = link || '#';
-  if (link && link !== '#') a.target = '_blank';
-  a.style.textDecoration = 'none';
-
-  const img = document.createElement('img');
-  img.src = logo; img.alt = title; img.title = title;
-  img.style = 'height:1.3em;vertical-align:middle;';
+  /* icon (external link) */
+  const a=document.createElement('a'); a.href=link||'#'; if (link&&link!=='#') a.target='_blank'; a.style.textDecoration='none';
+  const img=document.createElement('img'); img.src=logo; img.alt=title; img.style='height:1.3em;vertical-align:middle;';
+  const ckey = key.toLowerCase();
+  const countText = (typeof count==='number' && isFinite(count)) ? count.toLocaleString()
+                   : (typeof count==='string' && count.trim() ? count.trim() : '');
+  img.title = countText ? `${title} — ${countText}` : title;
   a.appendChild(img);
 
-  // number (opens settings)
-  const s = document.createElement('span');
-  s.textContent = disp;
-  s.title = 'Open settings';
-  s.style = 'font-size:1em;vertical-align:middle;cursor:pointer;';
+  /* number (opens settings) */
+  const s=document.createElement('span'); s.textContent=disp; s.title='Open settings';
+  s.style='font-size:1em;vertical-align:middle;cursor:pointer;';
+  s.addEventListener('click', e=>{ e.preventDefault(); e.stopPropagation(); if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS(); });
 
-  s.addEventListener('click', (e)=>{
-    e.preventDefault();
-    e.stopPropagation();
-    if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
-  });
-
+  /* colorize */
   if (DISPLAY.colorizeRatings){
-    let col;
-    if (r >= COLOR_THRESHOLDS.green) col = COLOR_VALUES.green;
-    else if (r >= COLOR_THRESHOLDS.orange) col = COLOR_VALUES.orange;
-    else col = COLOR_VALUES.red;
-    if (DISPLAY.colorizeNumbersOnly) s.style.color = col;
-    else { s.style.color = col; img.style.filter = `drop-shadow(0 0 3px ${col})`; }
+    let col = r>=COLOR_THRESHOLDS.green?COLOR_VALUES.green: r>=COLOR_THRESHOLDS.orange?COLOR_VALUES.orange:COLOR_VALUES.red;
+    if (DISPLAY.colorizeNumbersOnly) s.style.color=col; else { s.style.color=col; img.style.filter=`drop-shadow(0 0 3px ${col})`; }
   }
 
-  wrap.append(a, s);
-  container.append(wrap);
-
-  // sort by configured priority
-  [...container.children]
-    .sort((a,b)=>(RATING_PRIORITY[a.dataset.source]??999)-(RATING_PRIORITY[b.dataset.source]??999))
+  wrap.append(a,s); container.append(wrap);
+  /* re-sort */
+  [...container.children].sort((a,b)=>(RATING_PRIORITY[a.dataset.source]??999)-(RATING_PRIORITY[b.dataset.source]??999))
     .forEach(el=>container.appendChild(el));
 }
 
-/* -------- Fetch ratings (MDBList primary, extra sources + RT fallback) -------- */
+/* fetch ratings (MDBList + extras) */
 function fetchRatings(tmdbId, imdbId, container, type='movie'){
   GM_xmlhttpRequest({
     method:'GET',
     url:`https://api.mdblist.com/tmdb/${type}/${tmdbId}?apikey=${MDBLIST_API_KEY}`,
     onload:r=>{
-      if (r.status !== 200) return;
-      let d; try { d = JSON.parse(r.responseText); } catch { return; }
-      const title = d.title || ''; const slug = Util.slug(title);
+      if (r.status!==200) return;
+      let d; try{ d=JSON.parse(r.responseText); }catch{ return; }
+      const title=d.title||''; const slug=Util.slug(title);
 
       d.ratings?.forEach(rr=>{
-        const s = (rr.source||'').toLowerCase();
-        const v = rr.value;
+        const s=(rr.source||'').toLowerCase(), v=rr.value;
+        const cnt = rr.votes || rr.count || rr.reviewCount || rr.ratingCount; // best effort counts if MDBList provides them
 
         if (s.includes('imdb') && ENABLE_SOURCES.imdb)
-          appendRating(container, LOGO.imdb, v, 'IMDb', 'imdb', `https://www.imdb.com/title/${imdbId}/`);
+          appendRating(container, LOGO.imdb, v, 'IMDb', 'imdb', `https://www.imdb.com/title/${imdbId}/`, cnt);
 
         else if (s.includes('tmdb') && ENABLE_SOURCES.tmdb)
-          appendRating(container, LOGO.tmdb, v, 'TMDb', 'tmdb', `https://www.themoviedb.org/${type}/${tmdbId}`);
+          appendRating(container, LOGO.tmdb, v, 'TMDb', 'tmdb', `https://www.themoviedb.org/${type}/${tmdbId}`, cnt);
 
         else if (s.includes('trakt') && ENABLE_SOURCES.trakt)
-          appendRating(container, LOGO.trakt, v, 'Trakt', 'trakt', `https://trakt.tv/search/imdb/${imdbId}`);
+          appendRating(container, LOGO.trakt, v, 'Trakt', 'trakt', `https://trakt.tv/search/imdb/${imdbId}`, cnt);
 
         else if (s.includes('letterboxd') && ENABLE_SOURCES.letterboxd)
-          appendRating(container, LOGO.letterboxd, v, 'Letterboxd', 'letterboxd', `https://letterboxd.com/imdb/${imdbId}/`);
+          appendRating(container, LOGO.letterboxd, v, 'Letterboxd', 'letterboxd', `https://letterboxd.com/imdb/${imdbId}/`, cnt);
 
-        // ==== RT from MDBList when present ====
-        else if ((s === 'tomatoes' || s.includes('rotten_tomatoes')) && ENABLE_SOURCES.rotten_tomatoes_critic) {
+        else if ((s==='tomatoes'||s.includes('rotten_tomatoes')) && ENABLE_SOURCES.rotten_tomatoes_critic){
           const rtSearch = title ? `https://www.rottentomatoes.com/search?search=${encodeURIComponent(title)}` : '#';
-          appendRating(container, LOGO.tomatoes, v, 'RT Critic', 'rotten_tomatoes_critic', rtSearch);
+          appendRating(container, LOGO.tomatoes, v, 'RT Critic', 'rotten_tomatoes_critic', rtSearch, cnt);
         }
-        else if ((s.includes('popcorn') || s.includes('audience')) && ENABLE_SOURCES.rotten_tomatoes_audience) {
+        else if ((s.includes('popcorn')||s.includes('audience')) && ENABLE_SOURCES.rotten_tomatoes_audience){
           const rtSearch = title ? `https://www.rottentomatoes.com/search?search=${encodeURIComponent(title)}` : '#';
-          appendRating(container, LOGO.audience, v, 'RT Audience', 'rotten_tomatoes_audience', rtSearch);
+          appendRating(container, LOGO.audience, v, 'RT Audience', 'rotten_tomatoes_audience', rtSearch, cnt);
         }
-        // ======================================
 
-        else if (s === 'metacritic' && ENABLE_SOURCES.metacritic_critic){
+        else if (s==='metacritic' && ENABLE_SOURCES.metacritic_critic){
           const seg=(container.dataset.type==='show')?'tv':'movie';
           const link=slug?`https://www.metacritic.com/${seg}/${slug}`:`https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
-          appendRating(container, LOGO.metacritic, v, 'Metacritic (Critic)', 'metacritic_critic', link);
+          appendRating(container, LOGO.metacritic, v, 'Metacritic (Critic)', 'metacritic_critic', link, cnt);
         }
-        else if (s.includes('metacritic') && s.includes('user') && ENABLE_SOURCES.metacritic_user){
+        else if (s.includes('metacritic')&&s.includes('user') && ENABLE_SOURCES.metacritic_user){
           const seg=(container.dataset.type==='show')?'tv':'movie';
           const link=slug?`https://www.metacritic.com/${seg}/${slug}`:`https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
-          appendRating(container, LOGO.metacritic_user, v, 'Metacritic (User)', 'metacritic_user', link);
+          appendRating(container, LOGO.metacritic_user, v, 'Metacritic (User)', 'metacritic_user', link, cnt);
         }
+
         else if (s.includes('roger') && ENABLE_SOURCES.roger_ebert)
-          appendRating(container, LOGO.roger, v, 'Roger Ebert', 'roger_ebert', `https://www.rogerebert.com/reviews/${slug}`);
+          appendRating(container, LOGO.roger, v, 'Roger Ebert', 'roger_ebert', `https://www.rogerebert.com/reviews/${slug}`, cnt);
       });
 
-      // Extra sources + RT fallback
-      if (ENABLE_SOURCES.anilist)           fetchAniList(imdbId, container);
-      if (ENABLE_SOURCES.myanimelist)       fetchMAL(imdbId, container);
-      // RT fallback only if respective toggles are on
+      if (ENABLE_SOURCES.anilist)     fetchAniList(imdbId, container);
+      if (ENABLE_SOURCES.myanimelist) fetchMAL(imdbId, container);
       if (ENABLE_SOURCES.rotten_tomatoes_critic || ENABLE_SOURCES.rotten_tomatoes_audience) fetchRT(imdbId, container);
     }
   });
 }
 
-/* -------- Extra sources: AniList / MAL / RT (cached) -------- */
+/* AniList */
 function fetchAniList(imdbId, container){
   const q=`SELECT ?anilist WHERE { ?item wdt:P345 "${imdbId}" . ?item wdt:P8729 ?anilist . } LIMIT 1`;
   GM_xmlhttpRequest({
@@ -500,12 +332,10 @@ function fetchAniList(imdbId, container){
     url:'https://query.wikidata.org/sparql?format=json&query='+encodeURIComponent(q),
     onload:r=>{
       try{
-        const id = JSON.parse(r.responseText).results.bindings[0]?.anilist?.value;
-        if (!id) return;
+        const id = JSON.parse(r.responseText).results.bindings[0]?.anilist?.value; if (!id) return;
         const gql='query($id:Int){ Media(id:$id,type:ANIME){ id meanScore } }';
         GM_xmlhttpRequest({
-          method:'POST',
-          url:'https://graphql.anilist.co',
+          method:'POST', url:'https://graphql.anilist.co',
           headers:{'Content-Type':'application/json'},
           data:JSON.stringify({query:gql,variables:{id:parseInt(id,10)}}),
           onload:rr=>{
@@ -521,6 +351,7 @@ function fetchAniList(imdbId, container){
   });
 }
 
+/* MAL */
 function fetchMAL(imdbId, container){
   const q=`SELECT ?mal WHERE { ?item wdt:P345 "${imdbId}" . ?item wdt:P4086 ?mal . } LIMIT 1`;
   GM_xmlhttpRequest({
@@ -528,16 +359,16 @@ function fetchMAL(imdbId, container){
     url:'https://query.wikidata.org/sparql?format=json&query='+encodeURIComponent(q),
     onload:r=>{
       try{
-        const id = JSON.parse(r.responseText).results.bindings[0]?.mal?.value;
-        if (!id) return;
+        const id = JSON.parse(r.responseText).results.bindings[0]?.mal?.value; if (!id) return;
         GM_xmlhttpRequest({
-          method:'GET',
-          url:`https://api.jikan.moe/v4/anime/${id}`,
+          method:'GET', url:`https://api.jikan.moe/v4/anime/${id}`,
           onload:rr=>{
             try{
               const d = JSON.parse(rr.responseText).data;
-              if (Util.validNumber(d.score))
-                appendRating(container, LOGO.myanimelist, d.score, 'MyAnimeList', 'myanimelist', `https://myanimelist.net/anime/${id}`);
+              if (Util.validNumber(d.score)){
+                const count = (typeof d.scored_by==='number') ? d.scored_by : undefined;
+                appendRating(container, LOGO.myanimelist, d.score, 'MyAnimeList', 'myanimelist', `https://myanimelist.net/anime/${id}`, count);
+              }
             }catch{}
           }
         });
@@ -546,29 +377,24 @@ function fetchMAL(imdbId, container){
   });
 }
 
+/* RT fallback (HTML parse) */
 function fetchRT(imdbId, container){
   const key = `${NS}rt_${imdbId}`;
   const cache = localStorage.getItem(key);
   if (cache){
     try{
       const j = JSON.parse(cache);
-      if (Date.now() - j.time < CACHE_DURATION){
-        addRT(container, j.scores);
-        return;
-      }
+      if (Date.now() - j.time < CACHE_DURATION){ addRT(container, j.scores); return; }
     }catch{}
   }
-
   const q=`SELECT ?rtid WHERE { ?item wdt:P345 "${imdbId}" . ?item wdt:P1258 ?rtid . } LIMIT 1`;
   GM_xmlhttpRequest({
     method:'GET',
     url:'https://query.wikidata.org/sparql?format=json&query='+encodeURIComponent(q),
     onload:r=>{
       try{
-        const id = JSON.parse(r.responseText).results.bindings[0]?.rtid?.value;
-        if (!id) return;
-        const path = id.replace(/^https?:\/\/(?:www\.)?rottentomatoes\.com\//,'');
-        const url  = `https://www.rottentomatoes.com/${path}`;
+        const id = JSON.parse(r.responseText).results.bindings[0]?.rtid?.value; if (!id) return;
+        const url = `https://www.rottentomatoes.com/${id.replace(/^https?:\/\/(?:www\.)?rottentomatoes\.com\//,'')}`;
         GM_xmlhttpRequest({
           method:'GET', url,
           onload:rr=>{
@@ -577,8 +403,10 @@ function fetchRT(imdbId, container){
               if (!m) return;
               const d = JSON.parse(m[1]);
               const critic   = parseFloat(d.criticsScore?.score);
+              const cCount   = (typeof d.criticsScore?.reviewCount==='number') ? d.criticsScore.reviewCount : undefined;
               const audience = parseFloat(d.audienceScore?.score);
-              const scores = { critic, audience, link:url };
+              const aCount   = (typeof d.audienceScore?.ratingCount==='number') ? d.audienceScore.ratingCount : undefined;
+              const scores = { critic, audience, link:url, cCount, aCount };
               addRT(container, scores);
               localStorage.setItem(key, JSON.stringify({ time:Date.now(), scores }));
             }catch(e){ console.error('RT parse error', e); }
@@ -590,136 +418,82 @@ function fetchRT(imdbId, container){
 
   function addRT(c, s){
     if (Util.validNumber(s.critic)   && ENABLE_SOURCES.rotten_tomatoes_critic)
-      appendRating(c, LOGO.tomatoes, s.critic, 'RT Critic', 'rotten_tomatoes_critic', s.link || '#');
+      appendRating(c, LOGO.tomatoes, s.critic, 'RT Critic', 'rotten_tomatoes_critic', s.link||'#', s.cCount);
     if (Util.validNumber(s.audience) && ENABLE_SOURCES.rotten_tomatoes_audience)
-      appendRating(c, LOGO.audience, s.audience, 'RT Audience', 'rotten_tomatoes_audience', s.link || '#');
+      appendRating(c, LOGO.audience, s.audience, 'RT Audience', 'rotten_tomatoes_audience', s.link||'#', s.aCount);
   }
 }
 
-/* -------- Main update pipeline (order matters) -------- */
+/* pipeline */
 function updateAll(){
-  try {
-    removeBuiltInEndsAt();     // clear any previous/stray first
-    ensureInlineBadge();       // parental rating (clone to front)
-    ensureEndsAtInline();      // add/update our inline Ends at (first line)
-    removeBuiltInEndsAt();     // purge any duplicates that may have reappeared
-    scanLinks();               // ensure ratings containers exist per row
-    updateRatings();           // fetch & render ratings once per container
-  } catch (e) {
-    // console.debug('mdbl updateAll', e);
-  }
+  try{
+    removeBuiltInEndsAt();
+    ensureInlineBadge();
+    ensureEndsAtInline();
+    removeBuiltInEndsAt();
+    scanLinks();
+    updateRatings();
+  }catch(e){}
 }
 
-/* -------- Observe DOM changes once; debounce updates -------- */
-const MDbl = { debounceTimer: null };
-MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debounceTimer = setTimeout(fn, wait); };
-
-(function observePage(){
-  const obs = new MutationObserver(() => MDbl.debounce(updateAll, 150));
-  obs.observe(document.body, { childList:true, subtree:true });
-  updateAll(); // initial
-})();
+/* observe */
+const MDbl = { debounceTimer:null };
+MDbl.debounce=(fn,wait=150)=>{ clearTimeout(MDbl.debounceTimer); MDbl.debounceTimer=setTimeout(fn,wait); };
+(new MutationObserver(()=>MDbl.debounce(updateAll,150))).observe(document.body,{childList:true,subtree:true});
+updateAll();
 
 })(); 
 
 /* ======================================================
-   Settings Menu (open via clicking any rating number/%)
-   - No "Keys" heading; keep "MDBList API key" field
-   - "Show bullet…" is under Display
-   - Separate toggles: RT Critic/Audience and MC Critic/User
-   - No “icons only” option (numbers are always visible)
-   - Click outside closes panel; panel is draggable by header
+   SETTINGS (open via clicking any rating number/%)
+   - Keep MDBList API key (no “Keys” heading)
+   - Display keeps bullet toggle (moved here earlier)
+   - RT & MC are separate toggles (Critic/User & Critic/Audience)
+   - Click outside closes; panel is draggable by its header
 ====================================================== */
 (function settingsMenu(){
   const PREFS_KEY = `${NS}prefs`;
-  const LS_KEYS   = `${NS}keys`; // same namespacing used by the script
+  const LS_KEYS   = `${NS}keys`;
 
-  // --- utils ---
-  const deepClone = (o)=>JSON.parse(JSON.stringify(o));
+  const deepClone = o=>JSON.parse(JSON.stringify(o));
   const loadPrefs = ()=>{ try { return JSON.parse(localStorage.getItem(PREFS_KEY)||'{}'); } catch { return {}; } };
-  const savePrefs = (p)=>{ try { localStorage.setItem(PREFS_KEY, JSON.stringify(p||{})); } catch {} };
+  const savePrefs = p=>{ try { localStorage.setItem(PREFS_KEY, JSON.stringify(p||{})); } catch {} };
 
   const ICON = {
-    imdb: LOGO.imdb,
-    tmdb: LOGO.tmdb,
-    trakt: LOGO.trakt,
-    letterboxd: LOGO.letterboxd,
-    rotten_tomatoes_critic: LOGO.tomatoes,
-    rotten_tomatoes_audience: LOGO.audience,
-    metacritic_critic: LOGO.metacritic,
-    metacritic_user: LOGO.metacritic_user,
-    roger_ebert: LOGO.roger,
-    anilist: LOGO.anilist,
-    myanimelist: LOGO.myanimelist,
+    imdb: LOGO.imdb, tmdb: LOGO.tmdb, trakt: LOGO.trakt, letterboxd: LOGO.letterboxd,
+    rotten_tomatoes_critic: LOGO.tomatoes, rotten_tomatoes_audience: LOGO.audience,
+    metacritic_critic: LOGO.metacritic, metacritic_user: LOGO.metacritic_user,
+    roger_ebert: LOGO.roger, anilist: LOGO.anilist, myanimelist: LOGO.myanimelist,
   };
-
   const LABEL = {
-    imdb: 'IMDb',
-    tmdb: 'TMDb',
-    trakt: 'Trakt',
-    letterboxd: 'Letterboxd',
-    rotten_tomatoes_critic: 'Rotten Tomatoes (Critic)',
-    rotten_tomatoes_audience: 'Rotten Tomatoes (Audience)',
-    metacritic_critic: 'Metacritic (Critic)',
-    metacritic_user: 'Metacritic (User)',
-    roger_ebert: 'Roger Ebert',
-    anilist: 'AniList',
-    myanimelist: 'MyAnimeList',
+    imdb:'IMDb', tmdb:'TMDb', trakt:'Trakt', letterboxd:'Letterboxd',
+    rotten_tomatoes_critic:'Rotten Tomatoes (Critic)',
+    rotten_tomatoes_audience:'Rotten Tomatoes (Audience)',
+    metacritic_critic:'Metacritic (Critic)',
+    metacritic_user:'Metacritic (User)',
+    roger_ebert:'Roger Ebert', anilist:'AniList', myanimelist:'MyAnimeList'
   };
 
-  const DEFAULTS = {
-    sources:    deepClone(ENABLE_SOURCES),
-    display:    deepClone(DISPLAY),
-    priorities: deepClone(RATING_PRIORITY),
-  };
+  const DEFAULTS = { sources:deepClone(ENABLE_SOURCES), display:deepClone(DISPLAY), priorities:deepClone(RATING_PRIORITY) };
 
-  function getInjectorKey(){
-    try { return (window.MDBL_KEYS && typeof window.MDBL_KEYS==='object' && window.MDBL_KEYS.MDBLIST) ? String(window.MDBL_KEYS.MDBLIST) : ''; }
-    catch { return ''; }
-  }
-  function getStoredKeys(){
-    try { return JSON.parse(localStorage.getItem(LS_KEYS) || '{}'); } catch { return {}; }
-  }
+  function getInjectorKey(){ try{ return (window.MDBL_KEYS&&window.MDBL_KEYS.MDBLIST)?String(window.MDBL_KEYS.MDBLIST):''; }catch{ return ''; } }
+  function getStoredKeys(){ try{ return JSON.parse(localStorage.getItem(LS_KEYS)||'{}'); }catch{ return {}; } }
   function setStoredKey(newKey){
-    const obj = Object.assign({}, getStoredKeys(), { MDBLIST: newKey || '' });
-    try { localStorage.setItem(LS_KEYS, JSON.stringify(obj)); } catch {}
-    if (!getInjectorKey()) {
-      if (!window.MDBL_KEYS || typeof window.MDBL_KEYS!=='object') window.MDBL_KEYS = {};
-      window.MDBL_KEYS.MDBLIST = newKey || '';
-    }
-    if (window.MDBL_STATUS && window.MDBL_STATUS.keys) {
-      window.MDBL_STATUS.keys.MDBLIST = !!(getInjectorKey() || newKey);
-    }
+    const obj=Object.assign({},getStoredKeys(),{ MDBLIST:newKey||'' });
+    try{ localStorage.setItem(LS_KEYS, JSON.stringify(obj)); }catch{}
+    if(!getInjectorKey()){ if(!window.MDBL_KEYS||typeof window.MDBL_KEYS!=='object') window.MDBL_KEYS={}; window.MDBL_KEYS.MDBLIST=newKey||''; }
+    if(window.MDBL_STATUS&&window.MDBL_STATUS.keys){ window.MDBL_STATUS.keys.MDBLIST=!!(getInjectorKey()||newKey); }
   }
 
-  function applyPrefs(prefs){
-    const p = prefs || {};
-    // individual sources
-    if (p.sources){
-      Object.keys(ENABLE_SOURCES).forEach(k=>{
-        if (k in p.sources) ENABLE_SOURCES[k] = !!p.sources[k];
-      });
-    }
-    // display
-    if (p.display){
-      Object.keys(DISPLAY).forEach(k=>{
-        if (k in p.display) DISPLAY[k] = p.display[k];
-      });
-    }
-    // priorities
-    if (p.priorities){
-      Object.keys(p.priorities).forEach(k=>{
-        const v = Number(p.priorities[k]);
-        if (Number.isFinite(v)) RATING_PRIORITY[k] = v;
-      });
-    }
+  function applyPrefs(p){
+    if (p.sources) Object.keys(ENABLE_SOURCES).forEach(k=>{ if (k in p.sources) ENABLE_SOURCES[k]=!!p.sources[k]; });
+    if (p.display) Object.keys(DISPLAY).forEach(k=>{ if (k in p.display) DISPLAY[k]=p.display[k]; });
+    if (p.priorities) Object.keys(p.priorities).forEach(k=>{ const v=+p.priorities[k]; if (isFinite(v)) RATING_PRIORITY[k]=v; });
   }
+  const saved=loadPrefs(); if (saved && Object.keys(saved).length) applyPrefs(saved);
 
-  const saved = loadPrefs();
-  if (saved && Object.keys(saved).length) applyPrefs(saved);
-
-  // ---------- UI ----------
-  const css = `
+  /* UI */
+  const css=`
   #mdbl-panel{position:fixed;right:16px;bottom:70px;width:460px;max-height:88vh;overflow:auto;border-radius:14px;
     border:1px solid rgba(255,255,255,0.15);background:rgba(22,22,26,0.94);backdrop-filter:blur(8px);
     color:#eaeaea;z-index:99999;box-shadow:0 20px 40px rgba(0,0,0,0.45);display:none}
@@ -748,14 +522,10 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
   .mdbl-drag-handle{font-size:16px;opacity:0.6}
   .mdbl-dropping{outline:2px dashed rgba(255,255,255,0.25)}
   `;
-  const style = document.createElement('style');
-  style.id = 'mdbl-settings-css';
-  style.textContent = css;
-  document.head.appendChild(style);
+  const style=document.createElement('style'); style.id='mdbl-settings-css'; style.textContent=css; document.head.appendChild(style);
 
-  const panel = document.createElement('div');
-  panel.id = 'mdbl-panel';
-  panel.innerHTML = `
+  const panel=document.createElement('div'); panel.id='mdbl-panel';
+  panel.innerHTML=`
     <header id="mdbl-drag-handle">
       <h3>Jellyfin Ratings — Settings</h3>
       <button id="mdbl-close" aria-label="Close">✕</button>
@@ -772,131 +542,78 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
   `;
   document.body.appendChild(panel);
 
-  // --- Close on outside click ---
-  document.addEventListener('mousedown', (e)=>{
-    if (panel.style.display !== 'block') return;
-    if (!panel.contains(e.target)) hide();
-  });
+  /* close on outside click */
+  document.addEventListener('mousedown', e=>{ if (panel.style.display!=='block') return; if (!panel.contains(e.target)) hide(); });
 
-  // --- Dragging the panel by header ---
+  /* draggable panel */
   (function makePanelDraggable(){
-    const header = panel.querySelector('#mdbl-drag-handle');
-    let isDragging = false, startX=0, startY=0, startLeft=0, startTop=0;
-
-    const onMouseDown = (e)=>{
-      if (e.target.id === 'mdbl-close') return; // allow close button
-      isDragging = true;
-      panel.style.left = panel.getBoundingClientRect().left + 'px';
-      panel.style.top  = panel.getBoundingClientRect().top  + 'px';
-      panel.style.right = 'auto';
-      panel.style.bottom= 'auto';
-      startX = e.clientX;
-      startY = e.clientY;
-      startLeft = parseFloat(panel.style.left) || 0;
-      startTop  = parseFloat(panel.style.top)  || 0;
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
-      e.preventDefault();
-    };
-    const onMouseMove = (e)=>{
-      if (!isDragging) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      panel.style.left = Math.max(0, startLeft + dx) + 'px';
-      panel.style.top  = Math.max(0, startTop  + dy) + 'px';
-    };
-    const onMouseUp = ()=>{
-      isDragging = false;
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-    header.addEventListener('mousedown', onMouseDown);
+    const header=panel.querySelector('#mdbl-drag-handle'); let drag=false,sx=0,sy=0,sl=0,st=0;
+    header.addEventListener('mousedown', e=>{
+      if (e.target.id==='mdbl-close') return;
+      drag=true; const rect=panel.getBoundingClientRect();
+      panel.style.left=rect.left+'px'; panel.style.top=rect.top+'px'; panel.style.right='auto'; panel.style.bottom='auto';
+      sx=e.clientX; sy=e.clientY; sl=rect.left; st=rect.top;
+      const move=e2=>{ if(!drag) return; panel.style.left=Math.max(0, sl+(e2.clientX-sx))+'px'; panel.style.top=Math.max(0, st+(e2.clientY-sy))+'px'; };
+      const up =()=>{ drag=false; document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
+      document.addEventListener('mousemove',move); document.addEventListener('mouseup',up); e.preventDefault();
+    });
   })();
 
-  // Build order list from priorities (individual keys)
   function orderFromPriorities(){
-    return Object.keys(RATING_PRIORITY)
-      .filter(k => k in ENABLE_SOURCES)
+    return Object.keys(RATING_PRIORITY).filter(k=>k in ENABLE_SOURCES)
       .sort((a,b)=>(RATING_PRIORITY[a]??999)-(RATING_PRIORITY[b]??999))
-      .map(k => ({ k, icon: ICON[k], label: LABEL[k] || k.replace(/_/g,' ') }));
+      .map(k=>({k, icon:ICON[k], label:LABEL[k]||k.replace(/_/g,' ')}));
   }
-
   function makeSourceRow(item){
-    const key = item.k;
-    const li = document.createElement('div');
-    li.className = 'mdbl-source mdbl-drag';
-    li.draggable = true;
-    li.dataset.k = key;
-
-    const checked = !!ENABLE_SOURCES[key];
-
-    li.innerHTML = `
+    const key=item.k, li=document.createElement('div'); li.className='mdbl-source mdbl-drag'; li.draggable=true; li.dataset.k=key;
+    const checked=!!ENABLE_SOURCES[key];
+    li.innerHTML=`
       <img src="${item.icon}" alt="${item.label}" title="${item.label}">
       <span class="name">${item.label}</span>
       <div class="spacer"></div>
       <label class="toggle" title="Enable/disable">
-        <input type="checkbox" ${checked ? 'checked':''} data-toggle="${key}">
+        <input type="checkbox" ${checked?'checked':''} data-toggle="${key}">
       </label>
       <span class="mdbl-drag-handle" title="Drag to reorder">⋮⋮</span>
     `;
     return li;
   }
-
   function enableDnD(container){
-    let dragging = null;
-    container.addEventListener('dragstart', e=>{
-      const target = e.target.closest('.mdbl-source');
-      if (!target) return;
-      dragging = target;
-      target.classList.add('mdbl-dropping');
-      e.dataTransfer.effectAllowed = 'move';
+    let dragging=null;
+    container.addEventListener('dragstart',e=>{
+      const t=e.target.closest('.mdbl-source'); if(!t) return; dragging=t; t.classList.add('mdbl-dropping'); e.dataTransfer.effectAllowed='move';
     });
-    container.addEventListener('dragover', e=>{
-      if (!dragging) return;
-      e.preventDefault();
-      const after = getDragAfterElement(container, e.clientY);
-      if (after == null) container.appendChild(dragging);
-      else container.insertBefore(dragging, after);
+    container.addEventListener('dragover',e=>{
+      if(!dragging) return; e.preventDefault();
+      const after=getAfter(container,e.clientY);
+      (after==null)?container.appendChild(dragging):container.insertBefore(dragging,after);
     });
     ['drop','dragend'].forEach(evt=>{
-      container.addEventListener(evt, ()=>{
-        if (dragging) dragging.classList.remove('mdbl-dropping');
-        dragging = null;
-      });
+      container.addEventListener(evt,()=>{ if(dragging) dragging.classList.remove('mdbl-dropping'); dragging=null; });
     });
-    function getDragAfterElement(container, y){
-      const els = [...container.querySelectorAll('.mdbl-source:not(.mdbl-dropping)')];
-      return els.reduce((closest,child)=>{
-        const box = child.getBoundingClientRect();
-        const offset = y - box.top - box.height/2;
-        if (offset < 0 && offset > closest.offset) return { offset, element: child };
-        else return closest;
-      }, { offset: Number.NEGATIVE_INFINITY }).element;
+    function getAfter(container,y){
+      const els=[...container.querySelectorAll('.mdbl-source:not(.mdbl-dropping)')];
+      return els.reduce((c,ch)=>{ const box=ch.getBoundingClientRect(), off=y-box.top-box.height/2; return (off<0&&off>c.offset)?{offset:off,element:ch}:c; }, {offset:-1e9}).element;
     }
   }
 
   function render(){
-    // Keys (only field, no "Keys" line)
-    const kWrap = panel.querySelector('#mdbl-sec-keys');
-    const injKey = getInjectorKey();
-    const stored = getStoredKeys().MDBLIST || '';
-    const readonlyAttr = injKey ? 'readonly' : '';
-    const placeholder = injKey ? '(managed by injector)' : 'Enter MDBList API key';
-    kWrap.innerHTML = `
-      <label class="mdbl-subtle">MDBList API key</label>
-      <input type="text" id="mdbl-key-mdb" ${readonlyAttr} placeholder="${placeholder}" value="${injKey ? injKey : (stored || '')}">
-    `;
+    /* Keys (keep field, no "Keys" title) */
+    const kWrap=panel.querySelector('#mdbl-sec-keys');
+    const injKey=getInjectorKey(); const stored=getStoredKeys().MDBLIST||'';
+    const readonly=injKey?'readonly':''; const ph=injKey?'(managed by injector)':'Enter MDBList API key';
+    kWrap.innerHTML=`<label class="mdbl-subtle">MDBList API key</label><input type="text" id="mdbl-key-mdb" ${readonly} placeholder="${ph}" value="${injKey?injKey:(stored||'')}">`;
 
-    // Sources (individual toggles)
-    const sWrap = panel.querySelector('#mdbl-sec-sources');
-    sWrap.innerHTML = `<div class="mdbl-subtle">Sources (drag to reorder)</div><div id="mdbl-sources"></div>`;
-    const sList = sWrap.querySelector('#mdbl-sources');
-    orderFromPriorities().forEach(item=> sList.appendChild(makeSourceRow(item)));
+    /* Sources */
+    const sWrap=panel.querySelector('#mdbl-sec-sources');
+    sWrap.innerHTML=`<div class="mdbl-subtle">Sources (drag to reorder)</div><div id="mdbl-sources"></div>`;
+    const sList=sWrap.querySelector('#mdbl-sources');
+    orderFromPriorities().forEach(item=>sList.appendChild(makeSourceRow(item)));
     enableDnD(sList);
 
-    // Display
-    const dWrap = panel.querySelector('#mdbl-sec-display');
-    dWrap.innerHTML = `
+    /* Display */
+    const dWrap=panel.querySelector('#mdbl-sec-display');
+    dWrap.innerHTML=`
       <div class="mdbl-subtle">Display</div>
       <label class="mdbl-row"><span>Show %</span><input type="checkbox" id="d_showPercent" ${DISPLAY.showPercentSymbol?'checked':''}></label>
       <label class="mdbl-row"><span>Colorize ratings</span><input type="checkbox" id="d_colorize" ${DISPLAY.colorizeRatings?'checked':''}></label>
@@ -920,10 +637,10 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
     `;
   }
 
-  function show(){ panel.style.display = 'block'; }
-  function hide(){ panel.style.display = 'none'; }
-  window.MDBL_OPEN_SETTINGS = ()=>{ render(); show(); };
-  panel.addEventListener('click', (e)=>{ if (e.target.id === 'mdbl-close') hide(); });
+  function show(){ panel.style.display='block'; }
+  function hide(){ panel.style.display='none'; }
+  window.MDBL_OPEN_SETTINGS=()=>{ render(); show(); };
+  panel.addEventListener('click', e=>{ if(e.target.id==='mdbl-close') hide(); });
 
   panel.querySelector('#mdbl-btn-reset').addEventListener('click', ()=>{
     Object.assign(ENABLE_SOURCES, deepClone(DEFAULTS.sources));
@@ -931,22 +648,15 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
     Object.assign(RATING_PRIORITY, deepClone(DEFAULTS.priorities));
     savePrefs({});
     render();
-    if (window.MDBL_API && typeof window.MDBL_API.refresh==='function') window.MDBL_API.refresh();
+    if (window.MDBL_API?.refresh) window.MDBL_API.refresh();
   });
 
   panel.querySelector('#mdbl-btn-save').addEventListener('click', ()=>{
-    const prefs = { sources:{}, display:{}, priorities:{} };
+    const prefs={ sources:{}, display:{}, priorities:{} };
 
-    // priorities from drag order
-    const orderedKeys = [...panel.querySelectorAll('#mdbl-sources .mdbl-source')].map(el=>el.dataset.k);
-    orderedKeys.forEach((k, idx)=>{ prefs.priorities[k] = idx + 1; });
+    [...panel.querySelectorAll('#mdbl-sources .mdbl-source')].forEach((el,i)=>{ prefs.priorities[el.dataset.k]=i+1; });
+    panel.querySelectorAll('#mdbl-sources input[type="checkbox"][data-toggle]').forEach(cb=>{ prefs.sources[cb.dataset.toggle]=cb.checked; });
 
-    // toggles
-    panel.querySelectorAll('#mdbl-sources input[type="checkbox"][data-toggle]').forEach(cb=>{
-      prefs.sources[cb.dataset.toggle] = cb.checked;
-    });
-
-    // display
     prefs.display.showPercentSymbol   = panel.querySelector('#d_showPercent').checked;
     prefs.display.colorizeRatings     = panel.querySelector('#d_colorize').checked;
     prefs.display.colorizeNumbersOnly = panel.querySelector('#d_colorNumsOnly').checked;
@@ -954,18 +664,12 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
     prefs.display.endsAtFormat        = panel.querySelector('#d_endsFmt').value;
     prefs.display.endsAtBullet        = panel.querySelector('#d_endsBullet').checked;
 
-    // persist + apply
-    savePrefs(prefs);
-    applyPrefs(prefs);
+    savePrefs(prefs); applyPrefs(prefs);
 
-    // keys (only if no injector)
-    const injKey = getInjectorKey();
-    const keyInput = panel.querySelector('#mdbl-key-mdb');
+    const injKey=getInjectorKey(); const keyInput=panel.querySelector('#mdbl-key-mdb');
     if (keyInput && !injKey) setStoredKey((keyInput.value||'').trim());
 
-    if (window.MDBL_API && typeof window.MDBL_API.refresh==='function') window.MDBL_API.refresh();
-
-    // Full reload to apply everywhere
+    if (window.MDBL_API?.refresh) window.MDBL_API.refresh();
     location.reload();
   });
 
