@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.3.2 — RT via MDBList + Fallback)
+// @name         Jellyfin Ratings (v6.3.3 — RT via MDBList + Fallback)
 // @namespace    https://mdblist.com
-// @version      6.3.2
+// @version      6.3.3
 // @description  Unified ratings for Jellyfin 10.11.x (IMDb, TMDb, Trakt, Letterboxd, AniList, MAL, RT critic+audience, Roger Ebert, Metacritic critic+user). Normalized 0–100, colorized; custom inline “Ends at …” (12h/24h + bullet toggle) with strict dedupe; parental rating cloned to start; single MutationObserver; namespaced caches; tidy helpers and styles.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
@@ -14,16 +14,19 @@
 
 /* 🎬 SOURCES (defaults) */
 const DEFAULT_ENABLE_SOURCES = {
-  imdb:                   true,
-  tmdb:                   true,
-  trakt:                  true,
-  letterboxd:             true,
-  rotten_tomatoes:        true,  // single toggle (controls both critic + audience in UI)
-  roger_ebert:            true,
-  anilist:                true,
-  myanimelist:            true,
-  metacritic_critic:      true,
-  metacritic_user:        true
+  imdb:                     true,
+  tmdb:                     true,
+  trakt:                    true,
+  letterboxd:               true,
+  // Split Rotten Tomatoes toggles
+  rotten_tomatoes_critic:   true,
+  rotten_tomatoes_audience: true,
+  // Split Metacritic toggles (already split in your codebase)
+  metacritic_critic:        true,
+  metacritic_user:          true,
+  roger_ebert:              true,
+  anilist:                  true,
+  myanimelist:              true
 };
 
 /* 🎨 DISPLAY (defaults) */
@@ -31,7 +34,6 @@ const DEFAULT_DISPLAY = {
   showPercentSymbol:      true,   // show “%”
   colorizeRatings:        true,   // colorize ratings
   colorizeNumbersOnly:    true,   // true: number only; false: number + icon glow
-  iconsOnly:              false,  // show icons only (hide numbers)
   align:                  'left', // 'left' | 'center' | 'right'
   endsAtFormat:           '24h',  // '24h' | '12h'
   endsAtBullet:           true    // show bullet • before “Ends at …”
@@ -110,7 +112,6 @@ const RATING_PRIORITY = Object.assign({}, DEFAULT_PRIORITIES,     __CFG__.priori
    POLYFILL (for browsers without GM_xmlhttpRequest)
 ====================================================== */
 if (typeof GM_xmlhttpRequest === 'undefined') {
-  // If you prefer to avoid third-party proxies entirely, replace this block with a direct fetch-only polyfill.
   const PROXIES = [
     'https://api.allorigins.win/raw?url=',
     'https://api.codetabs.com/v1/proxy?quest='
@@ -292,7 +293,6 @@ function findRuntimeNode(primary){
 }
 function parseRuntimeToMinutes(text){
   if (!text) return 0;
-  // "1h 42m" | "1 h 42 m" | "2h" | "98m"
   const re = /(?:(\d+)\s*h(?:ours?)?\s*)?(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i;
   const m = text.match(re);
   if (!m) return 0;
@@ -378,7 +378,7 @@ function updateRatings(){
   });
 }
 
-/* --------- modified: allow "icons only" + audience click opens settings --------- */
+/* --------- core render: icons link out, numbers open settings --------- */
 function appendRating(container, logo, val, title, key, link){
   if (!Util.validNumber(val)) return;
   const n = Util.normalize(val, key);
@@ -389,29 +389,30 @@ function appendRating(container, logo, val, title, key, link){
 
   const wrap = document.createElement('div');
   wrap.dataset.source = key;
-  wrap.style = 'display:inline-flex;align-items:center;margin:0 6px;';
+  wrap.style = 'display:inline-flex;align-items:center;margin:0 6px;gap:3px;';
+
+  // icon (link out)
   const a = document.createElement('a');
-
-  // Default behavior (Critic etc.)
-  a.href = link; a.target = '_blank'; a.style.textDecoration='none;';
-
-  // If this is an audience-style badge, open settings panel instead of navigating
-  if (key === 'rotten_tomatoes_audience' || key === 'metacritic_user') {
-    a.href = '#';
-    a.removeAttribute('target');
-    a.addEventListener('click', (e)=>{
-      e.preventDefault();
-      if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
-    });
-  }
+  a.href = link || '#';
+  if (link && link !== '#') a.target = '_blank';
+  a.style.textDecoration = 'none';
 
   const img = document.createElement('img');
-  img.src = logo; img.alt = title; img.title = `${title}: ${disp}`;
-  img.style = 'height:1.3em;margin-right:3px;vertical-align:middle;';
+  img.src = logo; img.alt = title; img.title = title;
+  img.style = 'height:1.3em;vertical-align:middle;';
+  a.appendChild(img);
 
+  // number (opens settings)
   const s = document.createElement('span');
-  s.textContent = disp; s.style = 'font-size:1em;vertical-align:middle;';
-  if (DISPLAY.iconsOnly) s.style.display = 'none';
+  s.textContent = disp;
+  s.title = 'Open settings';
+  s.style = 'font-size:1em;vertical-align:middle;cursor:pointer;';
+
+  s.addEventListener('click', (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
+  });
 
   if (DISPLAY.colorizeRatings){
     let col;
@@ -422,9 +423,9 @@ function appendRating(container, logo, val, title, key, link){
     else { s.style.color = col; img.style.filter = `drop-shadow(0 0 3px ${col})`; }
   }
 
-  a.append(img,s);
-  wrap.append(a);
+  wrap.append(a, s);
   container.append(wrap);
+
   // sort by configured priority
   [...container.children]
     .sort((a,b)=>(RATING_PRIORITY[a.dataset.source]??999)-(RATING_PRIORITY[b.dataset.source]??999))
@@ -458,27 +459,25 @@ function fetchRatings(tmdbId, imdbId, container, type='movie'){
           appendRating(container, LOGO.letterboxd, v, 'Letterboxd', 'letterboxd', `https://letterboxd.com/imdb/${imdbId}/`);
 
         // ==== RT from MDBList when present ====
-        else if ((s === 'tomatoes' || s.includes('rotten_tomatoes')) && ENABLE_SOURCES.rotten_tomatoes) {
+        else if ((s === 'tomatoes' || s.includes('rotten_tomatoes')) && ENABLE_SOURCES.rotten_tomatoes_critic) {
           const rtSearch = title ? `https://www.rottentomatoes.com/search?search=${encodeURIComponent(title)}` : '#';
           appendRating(container, LOGO.tomatoes, v, 'RT Critic', 'rotten_tomatoes_critic', rtSearch);
         }
-        else if ((s.includes('popcorn') || s.includes('audience')) && ENABLE_SOURCES.rotten_tomatoes) {
+        else if ((s.includes('popcorn') || s.includes('audience')) && ENABLE_SOURCES.rotten_tomatoes_audience) {
           const rtSearch = title ? `https://www.rottentomatoes.com/search?search=${encodeURIComponent(title)}` : '#';
           appendRating(container, LOGO.audience, v, 'RT Audience', 'rotten_tomatoes_audience', rtSearch);
         }
         // ======================================
 
-        else if (s === 'metacritic' && (ENABLE_SOURCES.metacritic_critic || ENABLE_SOURCES.metacritic_user)){
+        else if (s === 'metacritic' && ENABLE_SOURCES.metacritic_critic){
           const seg=(container.dataset.type==='show')?'tv':'movie';
           const link=slug?`https://www.metacritic.com/${seg}/${slug}`:`https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
-          if (ENABLE_SOURCES.metacritic_critic)
-            appendRating(container, LOGO.metacritic, v, 'Metacritic (Critic)', 'metacritic_critic', link);
+          appendRating(container, LOGO.metacritic, v, 'Metacritic (Critic)', 'metacritic_critic', link);
         }
-        else if (s.includes('metacritic') && s.includes('user') && (ENABLE_SOURCES.metacritic_critic || ENABLE_SOURCES.metacritic_user)){
+        else if (s.includes('metacritic') && s.includes('user') && ENABLE_SOURCES.metacritic_user){
           const seg=(container.dataset.type==='show')?'tv':'movie';
           const link=slug?`https://www.metacritic.com/${seg}/${slug}`:`https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
-          if (ENABLE_SOURCES.metacritic_user)
-            appendRating(container, LOGO.metacritic_user, v, 'Metacritic (User)', 'metacritic_user', link);
+          appendRating(container, LOGO.metacritic_user, v, 'Metacritic (User)', 'metacritic_user', link);
         }
         else if (s.includes('roger') && ENABLE_SOURCES.roger_ebert)
           appendRating(container, LOGO.roger, v, 'Roger Ebert', 'roger_ebert', `https://www.rogerebert.com/reviews/${slug}`);
@@ -487,7 +486,8 @@ function fetchRatings(tmdbId, imdbId, container, type='movie'){
       // Extra sources + RT fallback
       if (ENABLE_SOURCES.anilist)           fetchAniList(imdbId, container);
       if (ENABLE_SOURCES.myanimelist)       fetchMAL(imdbId, container);
-      if (ENABLE_SOURCES.rotten_tomatoes)   fetchRT(imdbId, container); // fallback if MDBList lacks RT
+      // RT fallback only if respective toggles are on
+      if (ENABLE_SOURCES.rotten_tomatoes_critic || ENABLE_SOURCES.rotten_tomatoes_audience) fetchRT(imdbId, container);
     }
   });
 }
@@ -564,34 +564,34 @@ function fetchRT(imdbId, container){
     method:'GET',
     url:'https://query.wikidata.org/sparql?format=json&query='+encodeURIComponent(q),
     onload:r=>{
-    try{
-      const id = JSON.parse(r.responseText).results.bindings[0]?.rtid?.value;
-      if (!id) return;
-      const path = id.replace(/^https?:\/\/(?:www\.)?rottentomatoes\.com\//,'');
-      const url  = `https://www.rottentomatoes.com/${path}`;
-      GM_xmlhttpRequest({
-        method:'GET', url,
-        onload:rr=>{
-          try{
-            const m = rr.responseText.match(/<script\s+id="media-scorecard-json"[^>]*>([\s\S]*?)<\/script>/);
-            if (!m) return;
-            const d = JSON.parse(m[1]);
-            const critic   = parseFloat(d.criticsScore?.score);
-            const audience = parseFloat(d.audienceScore?.score);
-            const scores = { critic, audience, link:url };
-            addRT(container, scores);
-            localStorage.setItem(key, JSON.stringify({ time:Date.now(), scores }));
-          }catch(e){ console.error('RT parse error', e); }
-        }
-      });
-    }catch(e){ console.error(e); }
+      try{
+        const id = JSON.parse(r.responseText).results.bindings[0]?.rtid?.value;
+        if (!id) return;
+        const path = id.replace(/^https?:\/\/(?:www\.)?rottentomatoes\.com\//,'');
+        const url  = `https://www.rottentomatoes.com/${path}`;
+        GM_xmlhttpRequest({
+          method:'GET', url,
+          onload:rr=>{
+            try{
+              const m = rr.responseText.match(/<script\s+id="media-scorecard-json"[^>]*>([\s\S]*?)<\/script>/);
+              if (!m) return;
+              const d = JSON.parse(m[1]);
+              const critic   = parseFloat(d.criticsScore?.score);
+              const audience = parseFloat(d.audienceScore?.score);
+              const scores = { critic, audience, link:url };
+              addRT(container, scores);
+              localStorage.setItem(key, JSON.stringify({ time:Date.now(), scores }));
+            }catch(e){ console.error('RT parse error', e); }
+          }
+        });
+      }catch(e){ console.error(e); }
     }
   });
 
   function addRT(c, s){
-    if (Util.validNumber(s.critic) && ENABLE_SOURCES.rotten_tomatoes)
+    if (Util.validNumber(s.critic)   && ENABLE_SOURCES.rotten_tomatoes_critic)
       appendRating(c, LOGO.tomatoes, s.critic, 'RT Critic', 'rotten_tomatoes_critic', s.link || '#');
-    if (Util.validNumber(s.audience) && ENABLE_SOURCES.rotten_tomatoes)
+    if (Util.validNumber(s.audience) && ENABLE_SOURCES.rotten_tomatoes_audience)
       appendRating(c, LOGO.audience, s.audience, 'RT Audience', 'rotten_tomatoes_audience', s.link || '#');
   }
 }
@@ -623,17 +623,16 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
 })(); 
 
 /* ======================================================
-   Settings Menu (open via audience badge click)
+   Settings Menu (open via clicking any rating number/%)
    - No "Keys" heading; keep "MDBList API key" field
-   - "Show bullet…" moved into Display; "Other" removed
-   - Combined toggles: Rotten Tomatoes, Metacritic
-   - At least one of {RT, Metacritic} must be enabled
-   - Drag & drop ordering for combined entries
-   - No floating gear; use window.MDBL_OPEN_SETTINGS()
+   - "Show bullet…" is under Display
+   - Separate toggles: RT Critic/Audience and MC Critic/User
+   - No “icons only” option (numbers are always visible)
+   - Click outside closes panel; panel is draggable by header
 ====================================================== */
 (function settingsMenu(){
   const PREFS_KEY = `${NS}prefs`;
-  const LS_KEYS   = `${NS}keys`; // keep namespacing consistent
+  const LS_KEYS   = `${NS}keys`; // same namespacing used by the script
 
   // --- utils ---
   const deepClone = (o)=>JSON.parse(JSON.stringify(o));
@@ -645,11 +644,27 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
     tmdb: LOGO.tmdb,
     trakt: LOGO.trakt,
     letterboxd: LOGO.letterboxd,
-    rt: LOGO.tomatoes,
-    mc: LOGO.metacritic,
+    rotten_tomatoes_critic: LOGO.tomatoes,
+    rotten_tomatoes_audience: LOGO.audience,
+    metacritic_critic: LOGO.metacritic,
+    metacritic_user: LOGO.metacritic_user,
     roger_ebert: LOGO.roger,
     anilist: LOGO.anilist,
     myanimelist: LOGO.myanimelist,
+  };
+
+  const LABEL = {
+    imdb: 'IMDb',
+    tmdb: 'TMDb',
+    trakt: 'Trakt',
+    letterboxd: 'Letterboxd',
+    rotten_tomatoes_critic: 'Rotten Tomatoes (Critic)',
+    rotten_tomatoes_audience: 'Rotten Tomatoes (Audience)',
+    metacritic_critic: 'Metacritic (Critic)',
+    metacritic_user: 'Metacritic (User)',
+    roger_ebert: 'Roger Ebert',
+    anilist: 'AniList',
+    myanimelist: 'MyAnimeList',
   };
 
   const DEFAULTS = {
@@ -679,16 +694,11 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
 
   function applyPrefs(prefs){
     const p = prefs || {};
-    // sources (combined)
+    // individual sources
     if (p.sources){
-      ['imdb','tmdb','trakt','letterboxd','roger_ebert','anilist','myanimelist'].forEach(k=>{
+      Object.keys(ENABLE_SOURCES).forEach(k=>{
         if (k in p.sources) ENABLE_SOURCES[k] = !!p.sources[k];
       });
-      if ('rt' in p.sources) ENABLE_SOURCES.rotten_tomatoes = !!p.sources.rt;
-      if ('mc' in p.sources){
-        ENABLE_SOURCES.metacritic_critic = !!p.sources.mc;
-        ENABLE_SOURCES.metacritic_user   = !!p.sources.mc;
-      }
     }
     // display
     if (p.display){
@@ -696,20 +706,11 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
         if (k in p.display) DISPLAY[k] = p.display[k];
       });
     }
-    // priorities (combined mapping)
+    // priorities
     if (p.priorities){
       Object.keys(p.priorities).forEach(k=>{
         const v = Number(p.priorities[k]);
-        if (!Number.isFinite(v)) return;
-        if (k === 'rt'){
-          RATING_PRIORITY.rotten_tomatoes_critic   = v*2-1;
-          RATING_PRIORITY.rotten_tomatoes_audience = v*2;
-        } else if (k === 'mc'){
-          RATING_PRIORITY.metacritic_critic = v*2-1;
-          RATING_PRIORITY.metacritic_user   = v*2;
-        } else if (k in RATING_PRIORITY){
-          RATING_PRIORITY[k] = v;
-        }
+        if (Number.isFinite(v)) RATING_PRIORITY[k] = v;
       });
     }
   }
@@ -723,7 +724,7 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
     border:1px solid rgba(255,255,255,0.15);background:rgba(22,22,26,0.94);backdrop-filter:blur(8px);
     color:#eaeaea;z-index:99999;box-shadow:0 20px 40px rgba(0,0,0,0.45);display:none}
   #mdbl-panel header{position:sticky;top:0;background:rgba(22,22,26,0.96);padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.08);
-    display:flex;align-items:center;gap:8px}
+    display:flex;align-items:center;gap:8px;cursor:move}
   #mdbl-panel header h3{margin:0;font-size:15px;font-weight:700;flex:1}
   #mdbl-close{border:none;background:transparent;color:#aaa;font-size:18px;cursor:pointer;padding:4px;border-radius:8px}
   #mdbl-close:hover{background:rgba(255,255,255,0.06);color:#fff}
@@ -755,7 +756,7 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
   const panel = document.createElement('div');
   panel.id = 'mdbl-panel';
   panel.innerHTML = `
-    <header>
+    <header id="mdbl-drag-handle">
       <h3>Jellyfin Ratings — Settings</h3>
       <button id="mdbl-close" aria-label="Close">✕</button>
     </header>
@@ -771,25 +772,53 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
   `;
   document.body.appendChild(panel);
 
-  // Build combined order list from priorities
-  function combinedOrderFromPriorities(){
-    const entryPos = (keys)=>Math.min(...keys.map(k=>RATING_PRIORITY[k]??9999));
-    const list = [
-      {k:'imdb', icon:ICON.imdb,  label:'IMDb'},
-      {k:'tmdb', icon:ICON.tmdb,  label:'TMDb'},
-      {k:'trakt', icon:ICON.trakt, label:'Trakt'},
-      {k:'letterboxd', icon:ICON.letterboxd, label:'Letterboxd'},
-      {k:'rt', icon:ICON.rt, label:'Rotten Tomatoes', pos: entryPos(['rotten_tomatoes_critic','rotten_tomatoes_audience'])},
-      {k:'mc', icon:ICON.mc, label:'Metacritic', pos: entryPos(['metacritic_critic','metacritic_user'])},
-      {k:'roger_ebert', icon:ICON.roger_ebert, label:'Roger Ebert'},
-      {k:'anilist', icon:ICON.anilist, label:'AniList'},
-      {k:'myanimelist', icon:ICON.myanimelist, label:'MyAnimeList'},
-    ];
-    list.forEach(item=>{
-      if (item.pos == null && (item.k in RATING_PRIORITY)) item.pos = RATING_PRIORITY[item.k];
-      if (item.pos == null) item.pos = 9999;
-    });
-    return list.sort((a,b)=>a.pos-b.pos).map(i=>i);
+  // --- Close on outside click ---
+  document.addEventListener('mousedown', (e)=>{
+    if (panel.style.display !== 'block') return;
+    if (!panel.contains(e.target)) hide();
+  });
+
+  // --- Dragging the panel by header ---
+  (function makePanelDraggable(){
+    const header = panel.querySelector('#mdbl-drag-handle');
+    let isDragging = false, startX=0, startY=0, startLeft=0, startTop=0;
+
+    const onMouseDown = (e)=>{
+      if (e.target.id === 'mdbl-close') return; // allow close button
+      isDragging = true;
+      panel.style.left = panel.getBoundingClientRect().left + 'px';
+      panel.style.top  = panel.getBoundingClientRect().top  + 'px';
+      panel.style.right = 'auto';
+      panel.style.bottom= 'auto';
+      startX = e.clientX;
+      startY = e.clientY;
+      startLeft = parseFloat(panel.style.left) || 0;
+      startTop  = parseFloat(panel.style.top)  || 0;
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+      e.preventDefault();
+    };
+    const onMouseMove = (e)=>{
+      if (!isDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      panel.style.left = Math.max(0, startLeft + dx) + 'px';
+      panel.style.top  = Math.max(0, startTop  + dy) + 'px';
+    };
+    const onMouseUp = ()=>{
+      isDragging = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    header.addEventListener('mousedown', onMouseDown);
+  })();
+
+  // Build order list from priorities (individual keys)
+  function orderFromPriorities(){
+    return Object.keys(RATING_PRIORITY)
+      .filter(k => k in ENABLE_SOURCES)
+      .sort((a,b)=>(RATING_PRIORITY[a]??999)-(RATING_PRIORITY[b]??999))
+      .map(k => ({ k, icon: ICON[k], label: LABEL[k] || k.replace(/_/g,' ') }));
   }
 
   function makeSourceRow(item){
@@ -799,10 +828,7 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
     li.draggable = true;
     li.dataset.k = key;
 
-    let checked = false;
-    if (key === 'rt') checked = !!ENABLE_SOURCES.rotten_tomatoes;
-    else if (key === 'mc') checked = !!(ENABLE_SOURCES.metacritic_critic || ENABLE_SOURCES.metacritic_user);
-    else checked = !!ENABLE_SOURCES[key];
+    const checked = !!ENABLE_SOURCES[key];
 
     li.innerHTML = `
       <img src="${item.icon}" alt="${item.label}" title="${item.label}">
@@ -850,7 +876,7 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
   }
 
   function render(){
-    // Keys (only field, no "Keys" heading)
+    // Keys (only field, no "Keys" line)
     const kWrap = panel.querySelector('#mdbl-sec-keys');
     const injKey = getInjectorKey();
     const stored = getStoredKeys().MDBLIST || '';
@@ -861,22 +887,20 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
       <input type="text" id="mdbl-key-mdb" ${readonlyAttr} placeholder="${placeholder}" value="${injKey ? injKey : (stored || '')}">
     `;
 
-    // Sources (combined RT/MC)
+    // Sources (individual toggles)
     const sWrap = panel.querySelector('#mdbl-sec-sources');
     sWrap.innerHTML = `<div class="mdbl-subtle">Sources (drag to reorder)</div><div id="mdbl-sources"></div>`;
     const sList = sWrap.querySelector('#mdbl-sources');
-    combinedOrderFromPriorities().forEach(item=> sList.appendChild(makeSourceRow(item)));
+    orderFromPriorities().forEach(item=> sList.appendChild(makeSourceRow(item)));
     enableDnD(sList);
 
-    // Display (bullet moved here)
+    // Display
     const dWrap = panel.querySelector('#mdbl-sec-display');
     dWrap.innerHTML = `
       <div class="mdbl-subtle">Display</div>
       <label class="mdbl-row"><span>Show %</span><input type="checkbox" id="d_showPercent" ${DISPLAY.showPercentSymbol?'checked':''}></label>
       <label class="mdbl-row"><span>Colorize ratings</span><input type="checkbox" id="d_colorize" ${DISPLAY.colorizeRatings?'checked':''}></label>
       <label class="mdbl-row"><span>Numbers only colored</span><input type="checkbox" id="d_colorNumsOnly" ${DISPLAY.colorizeNumbersOnly?'checked':''}></label>
-      <label class="mdbl-row"><span>Icons only</span><input type="checkbox" id="d_iconsOnly" ${DISPLAY.iconsOnly?'checked':''}></label>
-      <label class="mdbl-row"><span>Show bullet before “Ends at”</span><input type="checkbox" id="d_endsBullet" ${DISPLAY.endsAtBullet?'checked':''}></label>
       <label class="mdbl-row">
         <span>Align</span>
         <select id="d_align" class="mdbl-select">
@@ -892,6 +916,7 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
           <option value="12h" ${DISPLAY.endsAtFormat==='12h'?'selected':''}>12h</option>
         </select>
       </label>
+      <label class="mdbl-row"><span>Show bullet before “Ends at”</span><input type="checkbox" id="d_endsBullet" ${DISPLAY.endsAtBullet?'checked':''}></label>
     `;
   }
 
@@ -912,35 +937,19 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
   panel.querySelector('#mdbl-btn-save').addEventListener('click', ()=>{
     const prefs = { sources:{}, display:{}, priorities:{} };
 
-    // priorities from drag order (combined rt/mc)
+    // priorities from drag order
     const orderedKeys = [...panel.querySelectorAll('#mdbl-sources .mdbl-source')].map(el=>el.dataset.k);
-    orderedKeys.forEach((k, idx)=>{
-      const rank = idx + 1;
-      if (k === 'rt') prefs.priorities.rt = rank;
-      else if (k === 'mc') prefs.priorities.mc = rank;
-      else prefs.priorities[k] = rank;
-    });
+    orderedKeys.forEach((k, idx)=>{ prefs.priorities[k] = idx + 1; });
 
     // toggles
     panel.querySelectorAll('#mdbl-sources input[type="checkbox"][data-toggle]').forEach(cb=>{
       prefs.sources[cb.dataset.toggle] = cb.checked;
     });
 
-    // enforce at least one of rt/mc on
-    const rtOn = !!prefs.sources.rt;
-    const mcOn = !!prefs.sources.mc;
-    if (!rtOn && !mcOn) prefs.sources.rt = true;
-
-    // carry-through singleton sources not present in the UI mapping
-    ['imdb','tmdb','trakt','letterboxd','roger_ebert','anilist','myanimelist'].forEach(k=>{
-      if (!(k in prefs.sources)) prefs.sources[k] = !!ENABLE_SOURCES[k];
-    });
-
     // display
     prefs.display.showPercentSymbol   = panel.querySelector('#d_showPercent').checked;
     prefs.display.colorizeRatings     = panel.querySelector('#d_colorize').checked;
     prefs.display.colorizeNumbersOnly = panel.querySelector('#d_colorNumsOnly').checked;
-    prefs.display.iconsOnly           = panel.querySelector('#d_iconsOnly').checked;
     prefs.display.align               = panel.querySelector('#d_align').value;
     prefs.display.endsAtFormat        = panel.querySelector('#d_endsFmt').value;
     prefs.display.endsAtBullet        = panel.querySelector('#d_endsBullet').checked;
@@ -954,8 +963,9 @@ MDbl.debounce = (fn, wait=150) => { clearTimeout(MDbl.debounceTimer); MDbl.debou
     const keyInput = panel.querySelector('#mdbl-key-mdb');
     if (keyInput && !injKey) setStoredKey((keyInput.value||'').trim());
 
-    // update UI then reload to apply globally
     if (window.MDBL_API && typeof window.MDBL_API.refresh==='function') window.MDBL_API.refresh();
+
+    // Full reload to apply everywhere
     location.reload();
   });
 
