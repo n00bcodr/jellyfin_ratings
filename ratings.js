@@ -32,7 +32,7 @@ const DISPLAY = {
   colorizeNumbersOnly:  true,     // true: color number only; false: number + icon glow
   align:                'left',   // 'left' | 'center' | 'right'
   endsAtFormat:         '24h',    // '24h' | '12h'
-  endsAtBullet:         true      // true: prefix “Ends at …” with a bullet “• ”
+  endsAtBullet:         false      // true: prefix “Ends at …” with a bullet “• ”
 };
 
 /* 📏 SPACING */
@@ -198,7 +198,7 @@ function hideDefault(){document.querySelectorAll('.itemMiscInfo.itemMiscInfo-pri
       span=document.createElement('span');
       span.id='customEndsAt';
       // Match first-line style
-      span.style.marginLeft='10px';
+      span.style.marginLeft='2px';
       span.style.color='inherit';
       span.style.opacity='1';
       span.style.fontSize='inherit';
