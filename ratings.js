@@ -659,18 +659,17 @@ window.MDBL_API = {
 };
 /* ======================================================
    Floating Settings Menu (bottom-right) + Keys editor
-   v2 — single column, icons, drag&drop sort, page reload on save
+   v2.1 — single column, icons, drag&drop sort, page reload on save,
+   X close in header, uniform select widths, Ends-at bullet at bottom
 ====================================================== */
 (function settingsMenu(){
   const PREFS_KEY = `${NS}prefs`;
-  const LS_KEYS   = 'mdbl_keys'; // where we mirror keys locally
+  const LS_KEYS   = 'mdbl_keys';
 
-  // ---- Utilities -----------------------------------------------------------
   const deepClone = (o)=>JSON.parse(JSON.stringify(o));
   const loadPrefs = ()=>{ try { return JSON.parse(localStorage.getItem(PREFS_KEY)||'{}'); } catch { return {}; } };
   const savePrefs = (p)=>{ try { localStorage.setItem(PREFS_KEY, JSON.stringify(p||{})); } catch {} };
 
-  // Human labels + icons for sources (keys from your script)
   const SOURCE_LABEL = {
     imdb: 'IMDb',
     tmdb: 'TMDb',
@@ -693,19 +692,17 @@ window.MDBL_API = {
     rotten_tomatoes_audience: LOGO.audience,
     roger_ebert: LOGO.roger,
     metacritic_critic: LOGO.metacritic,
-    metacritic_user: LOGO.metcacritic_user || LOGO.metacritic_user, // fallback if name differs
+    metacritic_user: LOGO.metacritic_user || LOGO.metacritic, // fallback
     anilist: LOGO.anilist,
     myanimelist: LOGO.myanimelist,
   };
 
-  // Build defaults snapshot from current live objects
   const DEFAULTS = {
     sources:    deepClone(ENABLE_SOURCES),
     display:    deepClone(DISPLAY),
     priorities: deepClone(RATING_PRIORITY),
   };
 
-  // --- Keys helpers (prefer injector over local) ---------------------------
   function getInjectorKey(){
     try { return (window.MDBL_KEYS && typeof window.MDBL_KEYS==='object' && window.MDBL_KEYS.MDBLIST) ? String(window.MDBL_KEYS.MDBLIST) : ''; }
     catch { return ''; }
@@ -721,7 +718,7 @@ window.MDBL_API = {
   function setStoredKey(newKey){
     const obj = Object.assign({}, getStoredKeys(), { MDBLIST: newKey || '' });
     try { localStorage.setItem(LS_KEYS, JSON.stringify(obj)); } catch {}
-    if (!getInjectorKey()) { // only mirror if no injector override
+    if (!getInjectorKey()) {
       if (!window.MDBL_KEYS || typeof window.MDBL_KEYS!=='object') window.MDBL_KEYS = {};
       window.MDBL_KEYS.MDBLIST = newKey || '';
     }
@@ -730,7 +727,6 @@ window.MDBL_API = {
     }
   }
 
-  // Apply prefs into live objects (mutates in place)
   function applyPrefs(prefs){
     const p = prefs || {};
     if (p.sources) Object.keys(ENABLE_SOURCES).forEach(k=>{
@@ -751,11 +747,10 @@ window.MDBL_API = {
     }
   }
 
-  // Load saved prefs (if any) and apply once
   const saved = loadPrefs();
   if (saved && Object.keys(saved).length) applyPrefs(saved);
 
-  // ---- UI -----------------------------------------------------------------
+  // ---------- UI ----------
   const css = `
   #mdbl-gear{position:fixed;right:16px;bottom:16px;width:44px;height:44px;border-radius:999px;border:1px solid rgba(255,255,255,0.15);
     background:rgba(20,20,20,0.78);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:99999;
@@ -765,26 +760,28 @@ window.MDBL_API = {
     background:rgba(22,22,26,0.94);backdrop-filter:blur(8px);color:#eaeaea;z-index:99999;box-shadow:0 20px 40px rgba(0,0,0,0.45);display:none}
   #mdbl-panel header{position:sticky;top:0;background:rgba(22,22,26,0.96);padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;gap:8px}
   #mdbl-panel header h3{margin:0;font-size:15px;font-weight:700;flex:1}
+  #mdbl-close{border:none;background:transparent;color:#aaa;font-size:18px;cursor:pointer;padding:4px;border-radius:8px}
+  #mdbl-close:hover{background:rgba(255,255,255,0.06);color:#fff}
   #mdbl-panel .mdbl-section{padding:12px 16px;display:flex;flex-direction:column;gap:10px}
   #mdbl-panel .mdbl-subtle{color:#9aa0a6;font-size:12px}
   #mdbl-panel .mdbl-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
-  #mdbl-panel .mdbl-row > *:last-child{margin-left:auto}
   #mdbl-panel input[type="checkbox"]{transform:scale(1.1)}
-  #mdbl-panel select, #mdbl-panel input[type="text"]{width:100%;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#121317;color:#eaeaea}
+  #mdbl-panel input[type="text"]{width:100%;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#121317;color:#eaeaea}
+  #mdbl-panel select{padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#121317;color:#eaeaea}
+  #mdbl-panel .mdbl-select{width:180px} /* uniform width for both selects */
   #mdbl-panel .mdbl-actions{position:sticky;bottom:0;background:rgba(22,22,26,0.96);display:flex;gap:10px;padding:12px 16px;border-top:1px solid rgba(255,255,255,0.08)}
   #mdbl-panel button{padding:9px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#1b1c20;color:#eaeaea;cursor:pointer}
   #mdbl-panel button.primary{background:#2a6df4;border-color:#2a6df4;color:#fff}
-  /* Source chips */
+  /* Source list */
   #mdbl-sources{display:flex;flex-direction:column;gap:8px}
   .mdbl-source{display:flex;align-items:center;gap:10px;background:#0f1115;border:1px solid rgba(255,255,255,0.1);padding:8px 10px;border-radius:12px}
   .mdbl-source img{height:18px;width:auto}
   .mdbl-source .name{font-size:13px}
   .mdbl-source .spacer{flex:1}
-  .mdbl-drag{cursor:grab;opacity:0.8}
+  .mdbl-drag{cursor:grab;opacity:0.9}
   .mdbl-drag:active{cursor:grabbing}
   .mdbl-drag-handle{font-size:16px;opacity:0.6}
   .mdbl-dropping{outline:2px dashed rgba(255,255,255,0.25)}
-  #mdbl-keys-note{margin-top:6px;font-size:12px;color:#9aa0a6}
   `;
   const style = document.createElement('style');
   style.id = 'mdbl-settings-css';
@@ -802,30 +799,26 @@ window.MDBL_API = {
   panel.innerHTML = `
     <header>
       <h3>Jellyfin Ratings — Settings</h3>
-      <span class="mdbl-subtle">v${(window.MDBL_STATUS&&window.MDBL_STATUS.version)||'6.x'}</span>
+      <button id="mdbl-close" aria-label="Close">✕</button>
     </header>
 
     <div class="mdbl-section" id="mdbl-sec-keys"></div>
     <div class="mdbl-section" id="mdbl-sec-sources"></div>
     <div class="mdbl-section" id="mdbl-sec-display"></div>
+    <div class="mdbl-section" id="mdbl-sec-misc"></div>
 
     <div class="mdbl-actions">
-      <button id="mdbl-btn-cancel">Close</button>
       <button id="mdbl-btn-reset">Reset</button>
       <button id="mdbl-btn-save" class="primary">Save & Apply</button>
-    </div>
-    <div class="mdbl-subtle" style="padding:0 16px 14px;">
-      Settings and local keys are stored only on this device. If your injector provides a key, it takes precedence.
     </div>
   `;
   document.body.appendChild(panel);
 
-  // ---- Drag & Drop helpers for priorities --------------------------------
+  // ----- Drag & Drop helpers -----
   function buildOrderedSourceList(){
-    // order by current RATING_PRIORITY (lower first)
     return Object.keys(RATING_PRIORITY)
       .sort((a,b)=>(RATING_PRIORITY[a]??999)-(RATING_PRIORITY[b]??999))
-      .filter(k => k in ENABLE_SOURCES); // keep only known keys
+      .filter(k => k in ENABLE_SOURCES);
   }
   function makeSourceRow(key){
     const li = document.createElement('div');
@@ -838,7 +831,7 @@ window.MDBL_API = {
       <img src="${icon}" alt="${name}" title="${name}">
       <span class="name">${name}</span>
       <div class="spacer"></div>
-      <label class="toggle">
+      <label class="toggle" title="Enable/disable source">
         <input type="checkbox" ${ENABLE_SOURCES[key] ? 'checked':''} data-toggle="${key}">
       </label>
       <span class="mdbl-drag-handle" title="Drag to reorder">⋮⋮</span>
@@ -861,13 +854,11 @@ window.MDBL_API = {
       if (after == null) container.appendChild(dragging);
       else container.insertBefore(dragging, after);
     });
-    container.addEventListener('drop', ()=>{
-      if (dragging) dragging.classList.remove('mdbl-dropping');
-      dragging = null;
-    });
-    container.addEventListener('dragend', ()=>{
-      if (dragging) dragging.classList.remove('mdbl-dropping');
-      dragging = null;
+    ['drop','dragend'].forEach(evt=>{
+      container.addEventListener(evt, ()=>{
+        if (dragging) dragging.classList.remove('mdbl-dropping');
+        dragging = null;
+      });
     });
     function getDragAfterElement(container, y){
       const els = [...container.querySelectorAll('.mdbl-source:not(.mdbl-dropping)')];
@@ -880,34 +871,28 @@ window.MDBL_API = {
     }
   }
 
-  // ---- Render -------------------------------------------------------------
+  // ----- Render -----
   function render(){
-    // KEYS (top)
+    // KEYS
     const kWrap = panel.querySelector('#mdbl-sec-keys');
     const injKey = getInjectorKey();
-    const effKey = getEffectiveKey();
     const stored = getStoredKeys().MDBLIST || '';
-    const masked = effKey ? (effKey.length > 6 ? `${effKey.slice(0,3)}…${effKey.slice(-3)}` : '•••') : '—';
     const readonlyAttr = injKey ? 'readonly' : '';
     const placeholder = injKey ? '(managed by injector)' : 'Enter MDBList API key';
-    const note = injKey
-      ? `<div id="mdbl-keys-note">Using key from injector. Local value is ignored while the injector key exists.</div>`
-      : `<div id="mdbl-keys-note">No injector key detected. This local key will be used.</div>`;
     kWrap.innerHTML = `
       <div class="mdbl-subtle">Keys</div>
-      <label class="mdbl-subtle">MDBList API key (effective: <strong>${masked}</strong>)</label>
+      <label class="mdbl-subtle">MDBList API key</label>
       <input type="text" id="mdbl-key-mdb" ${readonlyAttr} placeholder="${placeholder}" value="${injKey ? injKey : (stored || '')}">
-      ${note}
     `;
 
-    // SOURCES (draggable list)
+    // SOURCES (drag list)
     const sWrap = panel.querySelector('#mdbl-sec-sources');
     sWrap.innerHTML = `<div class="mdbl-subtle">Sources (drag to reorder)</div><div id="mdbl-sources"></div>`;
     const sList = sWrap.querySelector('#mdbl-sources');
     buildOrderedSourceList().forEach(k=> sList.appendChild(makeSourceRow(k)));
     enableDnD(sList);
 
-    // DISPLAY (single column)
+    // DISPLAY (single column, aligned selects same width)
     const dWrap = panel.querySelector('#mdbl-sec-display');
     dWrap.innerHTML = `
       <div class="mdbl-subtle">Display</div>
@@ -915,10 +900,9 @@ window.MDBL_API = {
       <label class="mdbl-row"><span>Colorize ratings</span><input type="checkbox" id="d_colorize" ${DISPLAY.colorizeRatings?'checked':''}></label>
       <label class="mdbl-row"><span>Numbers only colored</span><input type="checkbox" id="d_colorNumsOnly" ${DISPLAY.colorizeNumbersOnly?'checked':''}></label>
       <label class="mdbl-row"><span>Icons only</span><input type="checkbox" id="d_iconsOnly" ${DISPLAY.iconsOnly?'checked':''}></label>
-      <label class="mdbl-row"><span>Show bullet before “Ends at”</span><input type="checkbox" id="d_endsBullet" ${DISPLAY.endsAtBullet?'checked':''}></label>
       <label class="mdbl-row">
         <span>Align</span>
-        <select id="d_align">
+        <select id="d_align" class="mdbl-select">
           <option value="left" ${DISPLAY.align==='left'?'selected':''}>left</option>
           <option value="center" ${DISPLAY.align==='center'?'selected':''}>center</option>
           <option value="right" ${DISPLAY.align==='right'?'selected':''}>right</option>
@@ -926,11 +910,18 @@ window.MDBL_API = {
       </label>
       <label class="mdbl-row">
         <span>Ends at format</span>
-        <select id="d_endsFmt">
+        <select id="d_endsFmt" class="mdbl-select">
           <option value="24h" ${DISPLAY.endsAtFormat==='24h'?'selected':''}>24h</option>
           <option value="12h" ${DISPLAY.endsAtFormat==='12h'?'selected':''}>12h</option>
         </select>
       </label>
+    `;
+
+    // MISC (Ends-at bullet as last, single line)
+    const mWrap = panel.querySelector('#mdbl-sec-misc');
+    mWrap.innerHTML = `
+      <div class="mdbl-subtle">Other</div>
+      <label class="mdbl-row"><span>Show bullet before “Ends at”</span><input type="checkbox" id="d_endsBullet" ${DISPLAY.endsAtBullet?'checked':''}></label>
     `;
   }
 
@@ -940,7 +931,7 @@ window.MDBL_API = {
   gear.addEventListener('click', () => {
     if (panel.style.display === 'block') hide(); else { render(); show(); }
   });
-  panel.querySelector('#mdbl-btn-cancel').addEventListener('click', hide);
+  panel.querySelector('#mdbl-close').addEventListener('click', hide);
 
   panel.querySelector('#mdbl-btn-reset').addEventListener('click', ()=>{
     Object.assign(ENABLE_SOURCES, deepClone(DEFAULTS.sources));
@@ -952,19 +943,17 @@ window.MDBL_API = {
   });
 
   panel.querySelector('#mdbl-btn-save').addEventListener('click', ()=>{
-    // prefs to persist
     const prefs = { sources:{}, display:{}, priorities:{} };
 
-    // Sources toggle states + order -> priorities
+    // priorities from drag order
     const orderedKeys = [...panel.querySelectorAll('#mdbl-sources .mdbl-source')].map(el=>el.dataset.k);
-    orderedKeys.forEach((k, idx)=>{
-      prefs.priorities[k] = idx + 1; // lower appears earlier
-    });
+    orderedKeys.forEach((k, idx)=>{ prefs.priorities[k] = idx + 1; });
+    // toggles
     panel.querySelectorAll('#mdbl-sources input[type="checkbox"][data-toggle]').forEach(cb=>{
       prefs.sources[cb.dataset.toggle] = cb.checked;
     });
 
-    // Display
+    // display
     prefs.display.showPercentSymbol   = panel.querySelector('#d_showPercent').checked;
     prefs.display.colorizeRatings     = panel.querySelector('#d_colorize').checked;
     prefs.display.colorizeNumbersOnly = panel.querySelector('#d_colorNumsOnly').checked;
@@ -973,19 +962,17 @@ window.MDBL_API = {
     prefs.display.endsAtFormat        = panel.querySelector('#d_endsFmt').value;
     prefs.display.endsAtBullet        = panel.querySelector('#d_endsBullet').checked;
 
-    // Persist + apply
     savePrefs(prefs);
     applyPrefs(prefs);
 
-    // Keys: save local key only if injector didn’t supply one
+    // keys (only if no injector)
     const injKey = getInjectorKey();
     const keyInput = panel.querySelector('#mdbl-key-mdb');
     if (keyInput && !injKey) setStoredKey((keyInput.value||'').trim());
 
-    // Optional immediate refresh of our widgets (before reload)
     if (window.MDBL_API && typeof window.MDBL_API.refresh==='function') window.MDBL_API.refresh();
 
-    // Full page reload as requested
+    // full reload
     location.reload();
   });
 
