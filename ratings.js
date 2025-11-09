@@ -657,5 +657,308 @@ window.MDBL_API = {
   refresh(){ document.querySelectorAll('.mdblist-rating-container').forEach(el=>el.remove()); updateAll(); },
   setConfig(cfg){ Object.assign(__CFG__, cfg||{}); },
 };
+/* ======================================================
+   Floating Settings Menu (bottom-right) + Keys editor
+   - Persists to localStorage
+   - Mutates live config objects (no reload needed)
+   - Prefers keys from injector (window.MDBL_KEYS) over localStorage
+   - Calls MDBL_API.refresh() after Save
+====================================================== */
+(function settingsMenu(){
+  const PREFS_KEY = `${NS}prefs`;
+  const LS_KEYS   = 'mdbl_keys'; // where we mirror keys locally
+
+  function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
+  function loadPrefs(){
+    try { return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch { return {}; }
+  }
+  function savePrefs(p){
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(p||{})); } catch {}
+  }
+
+  // Build defaults snapshot from current live objects
+  const DEFAULTS = {
+    sources:       deepClone(ENABLE_SOURCES),
+    display:       deepClone(DISPLAY),
+    spacing:       deepClone(SPACING),
+    priorities:    deepClone(RATING_PRIORITY),
+  };
+
+  // --- Keys helpers (match ratings.js preference order) ---
+  function getInjectorKey(){
+    try { return (window.MDBL_KEYS && typeof window.MDBL_KEYS === 'object' && window.MDBL_KEYS.MDBLIST) ? String(window.MDBL_KEYS.MDBLIST) : ''; }
+    catch { return ''; }
+  }
+  function getStoredKeys(){
+    try { return JSON.parse(localStorage.getItem(LS_KEYS) || '{}'); } catch { return {}; }
+  }
+  function getEffectiveKey(){
+    const inj = getInjectorKey();
+    if (inj) return inj;
+    const stored = getStoredKeys();
+    return stored.MDBLIST || '';
+  }
+  function setStoredKey(newKey){
+    const obj = Object.assign({}, getStoredKeys(), { MDBLIST: newKey || '' });
+    try { localStorage.setItem(LS_KEYS, JSON.stringify(obj)); } catch {}
+    // Only set window.MDBL_KEYS if the injector didn't already provide one
+    if (!getInjectorKey()) {
+      try {
+        if (!window.MDBL_KEYS || typeof window.MDBL_KEYS !== 'object') window.MDBL_KEYS = {};
+        window.MDBL_KEYS.MDBLIST = newKey || '';
+      } catch {}
+    }
+    // Update status flag if present
+    if (window.MDBL_STATUS && window.MDBL_STATUS.keys) {
+      window.MDBL_STATUS.keys.MDBLIST = !!getEffectiveKey();
+    }
+  }
+
+  // Apply prefs into live objects (mutates in place so existing refs see changes)
+  function applyPrefs(prefs){
+    const p = prefs || {};
+    if (p.sources) Object.keys(ENABLE_SOURCES).forEach(k=>{
+      if (k in p.sources) ENABLE_SOURCES[k] = !!p.sources[k];
+    });
+    if (p.display){
+      Object.keys(DISPLAY).forEach(k=>{
+        if (k in p.display) DISPLAY[k] = p.display[k];
+      });
+    }
+    if (p.spacing){
+      Object.keys(SPACING).forEach(k=>{
+        if (k in p.spacing) SPACING[k] = Number(p.spacing[k]) || SPACING[k];
+      });
+    }
+    if (p.priorities){
+      Object.keys(RATING_PRIORITY).forEach(k=>{
+        if (k in p.priorities){
+          const v = Number(p.priorities[k]);
+          RATING_PRIORITY[k] = Number.isFinite(v) ? v : RATING_PRIORITY[k];
+        }
+      });
+    }
+  }
+
+  // Load saved prefs (if any) and apply once at boot
+  const saved = loadPrefs();
+  if (saved && Object.keys(saved).length) {
+    applyPrefs(saved);
+  }
+
+  // ---------- UI ----------
+  const css = `
+  #mdbl-gear { position: fixed; right: 16px; bottom: 16px; width: 44px; height: 44px;
+    border-radius: 999px; border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(20,20,20,0.7); backdrop-filter: blur(6px);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; z-index: 99999;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35); }
+  #mdbl-gear svg { width: 22px; height: 22px; fill: currentColor; color: #ddd; }
+  #mdbl-panel { position: fixed; right: 16px; bottom: 70px; width: 380px; max-height: 72vh; overflow:auto;
+    border-radius: 14px; border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(22,22,26,0.92); backdrop-filter: blur(8px); color: #eaeaea; z-index: 99999;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.45); display:none; }
+  #mdbl-panel header { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); display:flex; align-items:center; gap:8px; }
+  #mdbl-panel header h3 { margin: 0; font-size: 15px; font-weight: 700; flex:1; }
+  #mdbl-panel .mdbl-section { padding: 12px 14px; }
+  #mdbl-panel .mdbl-row { display:flex; align-items:center; justify-content:space-between; gap: 10px; padding: 6px 0; }
+  #mdbl-panel .mdbl-row label { font-size: 13px; }
+  #mdbl-panel .mdbl-grid { display:grid; grid-template-columns: 1fr auto; gap: 4px 8px; }
+  #mdbl-panel .mdbl-subtle { color:#9aa0a6; font-size: 12px; }
+  #mdbl-panel input[type="number"], #mdbl-panel input[type="text"] { width: 80px; padding:4px 6px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:#121317; color:#eaeaea; }
+  #mdbl-panel input[type="text"] { width: 100%; }
+  #mdbl-panel select { width: 120px; padding:4px 6px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:#121317; color:#eaeaea; }
+  #mdbl-panel .mdbl-actions { display:flex; gap:10px; padding: 12px 14px; border-top: 1px solid rgba(255,255,255,0.08); }
+  #mdbl-panel button { padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15); background:#1b1c20; color:#eaeaea; cursor:pointer; }
+  #mdbl-panel button.primary { background:#2a6df4; border-color:#2a6df4; color:white; }
+  #mdbl-panel .mdbl-hint { padding: 0 14px 12px; color:#9aa0a6; font-size:12px; }
+  #mdbl-panel .mdbl-chips { display:flex; flex-wrap:wrap; gap:8px; }
+  #mdbl-panel .mdbl-chip { display:inline-flex; align-items:center; gap:6px; background:#0f1115; border:1px solid rgba(255,255,255,0.1); padding:6px 8px; border-radius:999px; }
+  #mdbl-panel .mdbl-chip input { transform: scale(1.1); }
+  #mdbl-keys-note { margin-top: 6px; font-size: 12px; color: #9aa0a6; }
+  `;
+  const style = document.createElement('style');
+  style.id = 'mdbl-settings-css';
+  style.textContent = css;
+  document.head.appendChild(style);
+
+  const gear = document.createElement('div');
+  gear.id = 'mdbl-gear';
+  gear.title = 'Jellyfin Ratings — Settings';
+  gear.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 .001 7.001A3.5 3.5 0 0 0 12 8.5zm8.94 3.09l-1.73-.29a7.2 7.2 0 0 0-.68-1.64l1.03-1.4a.75.75 0 0 0-.09-.97l-1.44-1.44a.75.75 0 0 0-.97-.09l-1.4 1.03c-.52-.29-1.07-.51-1.64-.68l-.29-1.73A.75.75 0 0 0 12.19 2h-2.38a.75.75 0 0 0-.74.63l-.29 1.73c-.57.17-1.12.39-1.64.68L5.74 4.7a.75.75 0 0 0-.97.09L3.33 6.23a.75.75 0 0 0-.09.97l1.03 1.4c-.29.52-.51 1.07-.68 1.64l-1.73.29a.75.75 0 0 0-.63.74v2.38c0 .37.27.69.63.74l1.73.29c.17.57.39 1.12.68 1.64l-1.03 1.4a.75.75 0 0 0 .09.97l1.44 1.44c.26.26.67.3.97.09l1.4-1.03c.52.29 1.07.51 1.64.68l.29 1.73c.05.36.37.63.74.63h2.38c.37 0 .69-.27.74-.63l.29-1.73c.57-.17 1.12-.39 1.64-.68l1.4 1.03c.3.21.71.17.97-.09l1.44-1.44c.26-.26.3-.67.09-.97l-1.03-1.4c.29-.52.51-1.07.68-1.64l1.73-.29c.36-.05.63-.37.63-.74v-2.38a.75.75 0 0 0-.63-.74z"/></svg>`;
+  document.body.appendChild(gear);
+
+  const panel = document.createElement('div');
+  panel.id = 'mdbl-panel';
+  panel.innerHTML = `
+    <header>
+      <h3>Jellyfin Ratings — Settings</h3>
+      <span class="mdbl-subtle">v${(window.MDBL_STATUS&&window.MDBL_STATUS.version)||'6.x'}</span>
+    </header>
+
+    <div class="mdbl-section" id="mdbl-sec-keys"></div>
+
+    <div class="mdbl-section" id="mdbl-sec-sources"></div>
+    <div class="mdbl-section" id="mdbl-sec-display"></div>
+    <div class="mdbl-section" id="mdbl-sec-spacing"></div>
+    <div class="mdbl-section" id="mdbl-sec-priorities"></div>
+
+    <div class="mdbl-actions">
+      <button id="mdbl-btn-cancel">Close</button>
+      <button id="mdbl-btn-reset">Reset</button>
+      <button id="mdbl-btn-save" class="primary">Save & Apply</button>
+    </div>
+    <div class="mdbl-hint">Settings and local keys are stored only on this device. If your injector provides a key, it takes precedence.</div>
+  `;
+  document.body.appendChild(panel);
+
+  function render(){
+    // KEYS
+    const kWrap = panel.querySelector('#mdbl-sec-keys');
+    const injKey = getInjectorKey();
+    const effKey = getEffectiveKey();
+    const stored = getStoredKeys().MDBLIST || '';
+    const masked = effKey ? (effKey.length > 6 ? `${effKey.slice(0,3)}…${effKey.slice(-3)}` : '•••') : '—';
+    const readonlyAttr = injKey ? 'readonly' : '';
+    const placeholder = injKey ? '(managed by injector)' : 'Enter MDBList API key';
+    const note = injKey
+      ? `<div id="mdbl-keys-note">Using key from injector. Local value is ignored while the injector key exists.</div>`
+      : `<div id="mdbl-keys-note">No injector key detected. This local key will be used.</div>`;
+
+    kWrap.innerHTML = `
+      <div class="mdbl-subtle" style="margin-bottom:6px;">Keys</div>
+      <div class="mdbl-grid" style="grid-template-columns: 1fr;">
+        <label for="mdbl-key-mdb" class="mdbl-subtle">MDBList API key (effective: <strong>${masked}</strong>)</label>
+        <input type="text" id="mdbl-key-mdb" ${readonlyAttr} placeholder="${placeholder}" value="${injKey ? injKey : (stored || '')}">
+        ${note}
+      </div>
+    `;
+
+    // SOURCES
+    const sWrap = panel.querySelector('#mdbl-sec-sources');
+    sWrap.innerHTML = `<div class="mdbl-subtle" style="margin-bottom:6px;">Sources</div>
+      <div class="mdbl-chips" id="mdbl-sources"></div>`;
+    const sChips = sWrap.querySelector('#mdbl-sources');
+    Object.keys(DEFAULTS.sources).forEach(k=>{
+      const chip = document.createElement('label');
+      chip.className = 'mdbl-chip';
+      chip.innerHTML = `
+        <input type="checkbox" data-k="${k}" ${ENABLE_SOURCES[k] ? 'checked':''}>
+        <span>${k}</span>
+      `;
+      sChips.appendChild(chip);
+    });
+
+    // DISPLAY
+    const dWrap = panel.querySelector('#mdbl-sec-display');
+    dWrap.innerHTML = `<div class="mdbl-subtle" style="margin-bottom:6px;">Display</div>
+      <div class="mdbl-grid">
+        <label>Show %</label><input type="checkbox" id="d_showPercent" ${DISPLAY.showPercentSymbol?'checked':''}>
+        <label>Colorize ratings</label><input type="checkbox" id="d_colorize" ${DISPLAY.colorizeRatings?'checked':''}>
+        <label>Numbers only colored</label><input type="checkbox" id="d_colorNumsOnly" ${DISPLAY.colorizeNumbersOnly?'checked':''}>
+        <label>Icons only</label><input type="checkbox" id="d_iconsOnly" ${DISPLAY.iconsOnly?'checked':''}>
+        <label>Align</label>
+          <select id="d_align">
+            <option value="left" ${DISPLAY.align==='left'?'selected':''}>left</option>
+            <option value="center" ${DISPLAY.align==='center'?'selected':''}>center</option>
+            <option value="right" ${DISPLAY.align==='right'?'selected':''}>right</option>
+          </select>
+        <label>Ends at format</label>
+          <select id="d_endsFmt">
+            <option value="24h" ${DISPLAY.endsAtFormat==='24h'?'selected':''}>24h</option>
+            <option value="12h" ${DISPLAY.endsAtFormat==='12h'?'selected':''}>12h</option>
+          </select>
+        <label>Show bullet before “Ends at”</label><input type="checkbox" id="d_endsBullet" ${DISPLAY.endsAtBullet?'checked':''}>
+      </div>`;
+
+    // SPACING
+    const spWrap = panel.querySelector('#mdbl-sec-spacing');
+    spWrap.innerHTML = `<div class="mdbl-subtle" style="margin-bottom:6px;">Spacing</div>
+      <div class="mdbl-grid">
+        <label>Ratings top gap (px)</label><input type="number" id="sp_gap" min="0" max="48" step="1" value="${Number(SPACING.ratingsTopGapPx)||8}">
+      </div>`;
+
+    // PRIORITIES
+    const pWrap = panel.querySelector('#mdbl-sec-priorities');
+    const pr = RATING_PRIORITY;
+    pWrap.innerHTML = `<div class="mdbl-subtle" style="margin-bottom:6px;">Sort priority (lower number shows earlier)</div>
+      <div class="mdbl-grid" id="mdbl-prios"></div>`;
+    const pGrid = pWrap.querySelector('#mdbl-prios');
+    Object.keys(pr).sort((a,b)=>pr[a]-pr[b]).forEach(k=>{
+      const row = document.createElement('div');
+      row.className = 'mdbl-row';
+      row.innerHTML = `
+        <label for="prio_${k}">${k}</label>
+        <input type="number" id="prio_${k}" data-k="${k}" step="1" value="${Number(pr[k])}">
+      `;
+      pGrid.appendChild(row);
+    });
+  }
+
+  function show(){ panel.style.display = 'block'; }
+  function hide(){ panel.style.display = 'none'; }
+
+  document.body.appendChild(gear);
+  document.body.appendChild(panel);
+
+  gear.addEventListener('click', () => {
+    if (panel.style.display === 'block') hide(); else { render(); show(); }
+  });
+  panel.querySelector('#mdbl-btn-cancel').addEventListener('click', hide);
+
+  panel.querySelector('#mdbl-btn-reset').addEventListener('click', ()=>{
+    Object.assign(ENABLE_SOURCES, deepClone(DEFAULTS.sources));
+    Object.assign(DISPLAY,         deepClone(DEFAULTS.display));
+    Object.assign(SPACING,         deepClone(DEFAULTS.spacing));
+    Object.assign(RATING_PRIORITY, deepClone(DEFAULTS.priorities));
+    savePrefs({}); // clear user prefs (keys are NOT cleared here)
+    render();
+    if (window.MDBL_API && typeof window.MDBL_API.refresh==='function') window.MDBL_API.refresh();
+  });
+
+  panel.querySelector('#mdbl-btn-save').addEventListener('click', ()=>{
+    // Build prefs from UI
+    const prefs = { sources:{}, display:{}, spacing:{}, priorities:{} };
+
+    // Sources
+    panel.querySelectorAll('#mdbl-sources input[type="checkbox"]').forEach(cb=>{
+      prefs.sources[cb.dataset.k] = cb.checked;
+    });
+
+    // Display
+    prefs.display.showPercentSymbol   = panel.querySelector('#d_showPercent').checked;
+    prefs.display.colorizeRatings     = panel.querySelector('#d_colorize').checked;
+    prefs.display.colorizeNumbersOnly = panel.querySelector('#d_colorNumsOnly').checked;
+    prefs.display.iconsOnly           = panel.querySelector('#d_iconsOnly').checked;
+    prefs.display.align               = panel.querySelector('#d_align').value;
+    prefs.display.endsAtFormat        = panel.querySelector('#d_endsFmt').value;
+    prefs.display.endsAtBullet        = panel.querySelector('#d_endsBullet').checked;
+
+    // Spacing
+    prefs.spacing.ratingsTopGapPx = Number(panel.querySelector('#sp_gap').value) || 8;
+
+    // Priorities
+    panel.querySelectorAll('#mdbl-prios input[type="number"]').forEach(inp=>{
+      prefs.priorities[inp.dataset.k] = Number(inp.value);
+    });
+
+    // Persist + apply prefs
+    savePrefs(prefs);
+    applyPrefs(prefs);
+
+    // Keys: save local key only if input is editable (i.e., no injector override)
+    const injKey = getInjectorKey();
+    const keyInput = panel.querySelector('#mdbl-key-mdb');
+    if (keyInput && !injKey) {
+      setStoredKey((keyInput.value || '').trim());
+    }
+
+    // Re-render ratings
+    if (window.MDBL_API && typeof window.MDBL_API.refresh==='function') window.MDBL_API.refresh();
+
+    hide();
+  });
+
+})();
 
 })();
