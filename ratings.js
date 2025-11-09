@@ -1,18 +1,19 @@
 // ==UserScript==
-// @name         MDBList Ratings (v6.3.1 — No-Dupe EndsAt, Clean Observer, Full Sources)
+// @name         Jellyfin Ratings (GitHub build, accepts window.MDBL_CFG)
 // @namespace    https://mdblist.com
-// @version      6.3.1
+// @version      6.3.1-github
 // @description  Unified ratings for Jellyfin 10.11.x (IMDb, TMDb, Trakt, Letterboxd, AniList, MAL, RT critic+audience, Roger Ebert, Metacritic critic+user). Normalized 0–100, colorized; custom inline “Ends at …” (12h/24h + bullet toggle) with strict dedupe; parental rating cloned to start; single MutationObserver; namespaced caches; tidy helpers and styles.
-// @match        *://*.imdb.com/title/*
+// @match        *://*/*
 // @grant        GM_xmlhttpRequest
-// ==/UserScript==
+// ==/UserScript>
 
 /* ======================================================
-   🧠 CONFIGURATION — toggles on separate lines
+   DEFAULT CONFIG (works standalone)
+   You can override any of these via window.MDBL_CFG in your injector.
 ====================================================== */
 
-/* 🎬 SOURCES */
-const ENABLE_SOURCES = {
+/* 🎬 SOURCES (defaults) */
+const DEFAULT_ENABLE_SOURCES = {
   imdb:                   true,
   tmdb:                   true,
   trakt:                  true,
@@ -25,8 +26,8 @@ const ENABLE_SOURCES = {
   metacritic_user:        true
 };
 
-/* 🎨 DISPLAY */
-const DISPLAY = {
+/* 🎨 DISPLAY (defaults) */
+const DEFAULT_DISPLAY = {
   showPercentSymbol:      true,   // show “%”
   colorizeRatings:        true,   // colorize ratings
   colorizeNumbersOnly:    true,   // true: number only; false: number + icon glow
@@ -35,9 +36,24 @@ const DISPLAY = {
   endsAtBullet:           true    // show bullet • before “Ends at …”
 };
 
-/* 📏 SPACING */
-const SPACING = {
+/* 📏 SPACING (defaults) */
+const DEFAULT_SPACING = {
   ratingsTopGapPx:        8       // gap between first row and ratings row
+};
+
+/* 🧮 SORT ORDER (defaults; lower appears earlier) */
+const DEFAULT_PRIORITIES = {
+  imdb:                     1,
+  tmdb:                     2,
+  trakt:                    3,
+  letterboxd:               4,
+  rotten_tomatoes_critic:   5,
+  rotten_tomatoes_audience: 6,
+  roger_ebert:              7,
+  metacritic_critic:        8,
+  metacritic_user:          9,
+  anilist:                  10,
+  myanimelist:              11
 };
 
 /* ⚙️ NORMALIZATION (→ 0–100) */
@@ -58,21 +74,6 @@ const SCALE_MULTIPLIER = {
 /* 🎨 COLORS */
 const COLOR_THRESHOLDS = { green: 75, orange: 50, red: 0 };
 const COLOR_VALUES     = { green: 'limegreen', orange: 'orange', red: 'crimson' };
-
-/* 🧮 SORT ORDER (lower appears earlier) */
-const RATING_PRIORITY = {
-  imdb:                     1,
-  tmdb:                     2,
-  trakt:                    3,
-  letterboxd:               4,
-  rotten_tomatoes_critic:   5,
-  rotten_tomatoes_audience: 6,
-  roger_ebert:              7,
-  metacritic_critic:        8,
-  metacritic_user:          9,
-  anilist:                  10,
-  myanimelist:              11
-};
 
 /* 🔑 API KEY + CACHE (namespaced) */
 const MDBLIST_API_KEY = 'hehfnbo9y8blfyqm1d37ikubl';
@@ -95,6 +96,15 @@ const LOGO = {
 };
 
 /* ======================================================
+   MERGE CONFIG FROM INJECTOR (window.MDBL_CFG) IF PRESENT
+====================================================== */
+const __CFG__ = (typeof window !== 'undefined' && window.MDBL_CFG) ? window.MDBL_CFG : {};
+const ENABLE_SOURCES  = Object.assign({}, DEFAULT_ENABLE_SOURCES, __CFG__.sources   || {});
+const DISPLAY         = Object.assign({}, DEFAULT_DISPLAY,        __CFG__.display   || {});
+const SPACING         = Object.assign({}, DEFAULT_SPACING,        __CFG__.spacing   || {});
+const RATING_PRIORITY = Object.assign({}, DEFAULT_PRIORITIES,     __CFG__.priorities|| {});
+
+/* ======================================================
    POLYFILL (for browsers without GM_xmlhttpRequest)
 ====================================================== */
 if (typeof GM_xmlhttpRequest === 'undefined') {
@@ -109,7 +119,7 @@ if (typeof GM_xmlhttpRequest === 'undefined') {
     const sep = url.includes('?') ? '&' : '?';
     const final = isDirect ? url : (proxy + encodeURIComponent(url + sep + `_=${Date.now()}`));
     fetch(final, { method, headers, body:data, cache:'no-store' })
-      .then(r => r.text().then(t => onload({ status:r.status, responseText:t })))
+      .then(r => r.text().then(t => onload && onload({ status:r.status, responseText:t })))
       .catch(e => onerror && onerror(e));
   };
 }
@@ -147,6 +157,9 @@ const Util = {
 (function(){
 'use strict';
 
+// Early exit if not on a Jellyfin item page (keeps script harmless elsewhere)
+if (!document.body) return;
+
 let currentImdbId = null;
 
 /* -------- Strictly remove any non-inline (ours) “Ends at …” -------- */
@@ -157,7 +170,7 @@ function removeBuiltInEndsAt(){
     if (/\bends\s+at\b/i.test(txt)) row.remove();
   });
 
-  // 2) Remove any other stray “Ends at” inside the info panel, EXCEPT our #customEndsAt
+  // 2) Remove stray “Ends at” inside the info panel, EXCEPT our #customEndsAt
   const ours = document.getElementById('customEndsAt');
   document.querySelectorAll('.itemMiscInfo span, .itemMiscInfo div').forEach(el => {
     if (el === ours || (ours && ours.contains(el))) return; // keep ours
@@ -297,7 +310,7 @@ function parseRuntimeToMinutes(text){
 }
 
 /* -------- Ratings: scan rows, insert containers, fetch once -------- */
-function hideDefaultRatings(){
+function hideDefaultRatingsOnce(){
   document.querySelectorAll('.itemMiscInfo.itemMiscInfo-primary').forEach(box=>{
     box.querySelectorAll('.starRatingContainer,.mediaInfoCriticRating').forEach(el=>{ el.style.display='none'; });
   });
@@ -355,7 +368,7 @@ function scanLinks(){
     });
   });
 
-  hideDefaultRatings();
+  hideDefaultRatingsOnce();
 }
 
 function updateRatings(){
@@ -552,11 +565,6 @@ function fetchRT(imdbId, container){
 }
 
 /* -------- Main update pipeline (order matters) -------- */
-function hideDefaultRatingsOnce(){
-  document.querySelectorAll('.itemMiscInfo.itemMiscInfo-primary').forEach(box=>{
-    box.querySelectorAll('.starRatingContainer,.mediaInfoCriticRating').forEach(el=>{ el.style.display='none'; });
-  });
-}
 function updateAll(){
   try {
     removeBuiltInEndsAt();     // clear any previous/stray first
@@ -565,7 +573,6 @@ function updateAll(){
     removeBuiltInEndsAt();     // purge any duplicates that may have reappeared
     scanLinks();               // ensure ratings containers exist per row
     updateRatings();           // fetch & render ratings once per container
-    hideDefaultRatingsOnce();  // keep built-in stars/critics hidden
   } catch (e) {
     // console.debug('mdbl updateAll', e);
   }
