@@ -7,9 +7,11 @@ Add clean, clickable ratings to Jellyfin item pages (movies, shows, and anime) f
 ## Features
 
 * Adds rating badges to item pages with links back to the source.
+* Optional colercoded ratings for better readability.
 * Works for movies, series, and anime.
 * Turn individual sources on/off.
 * **Drag & drop** to reorder which ratings appear first (from the in‑app menu).
+* Compact Mode for the Menu to better fit different screen sizes.
 * Lightweight; loads only when needed in the web UI.
 
 ### Available rating sources
