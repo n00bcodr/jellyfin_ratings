@@ -15,8 +15,8 @@ const DEFAULT_ENABLE_SOURCES = {
   roger_ebert:true, anilist:true, myanimelist:true
 };
 const DEFAULT_DISPLAY = {
-  showPercentSymbol:false,
-  colorNumbers:false,     // number coloring
+  showPercentSymbol:true,
+  colorNumbers:true,     // number coloring
   colorIcons:false,      // icon glow
   align:'left',
   endsAtFormat:'24h',    // '24h' | '12h'
