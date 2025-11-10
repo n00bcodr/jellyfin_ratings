@@ -77,7 +77,8 @@ Add clean, clickable ratings to Jellyfin item pages (movies, shows, and anime) f
      }
    })();
    ```
-4. Save and refresh Jellyfin in your browser
+4. Add you MDBList API-Key to the top of the script.
+5. Save and refresh Jellyfin in your browser
 
 ---
 
@@ -85,9 +86,10 @@ Add clean, clickable ratings to Jellyfin item pages (movies, shows, and anime) f
 
 1. Open any movie/series/anime item page in Jellyfin.
 2. Click the rating **number** to open the Settings panel. Clicking a rating **icon** opens its source page (IMDb, TMDb, etc.).
-3. Paste your **MDBList API Key** and **Save**.
 4. Toggle the sources you want.
-5. Use **drag & drop** in the menu to reorder how the ratings appear.
+5. Toggle Settings like colored ratings, colored icons and the color palette.
+6. Use **drag & drop** in the menu to reorder how the ratings appear.
+7. Toggle Compact Mode for a more compact Settings menu
 
 ---
 
