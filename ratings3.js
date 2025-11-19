@@ -1,16 +1,3 @@
-Hier ist das aktualisierte Skript (Version 6.4.2).
-
-**Änderungen und Fixes:**
-
-1.  **Live Preview:** Wenn Sie die Regler bewegen, verschieben sich die Bewertungen jetzt **sofort** auf der Seite, ohne dass Sie speichern müssen. So sehen Sie direkt, wo sie landen.
-2.  **Verschwinden gefixt:** Ich habe die Standardwerte und die CSS-Berechnung gehärtet, damit ungültige Werte (NaN) nicht dazu führen, dass der Container unsichtbar wird.
-3.  **Zeitformat:** Das Dropdown "Ends at format" wurde durch eine Checkbox **"Enable 24h format"** ersetzt.
-
-### Installationsanleitung
-
-Kopieren Sie den gesamten Code unten und ersetzen Sie damit den Inhalt Ihrer `ratings.js` Datei.
-
-```javascript
 // ==UserScript==
 // @name         Jellyfin Ratings (v6.4.2 — Live Preview + XY Fix)
 // @namespace    https://mdblist.com
@@ -985,4 +972,3 @@ updateAll();
   try{APPLY();}catch{}
   try{const obs=new MutationObserver(APPLY);obs.observe(document.documentElement,{childList:true,subtree:true});}catch{}
 })();
-```
