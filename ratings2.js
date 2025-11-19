@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v8.7.0 — Alignment Option)
+// @name         Jellyfin Ratings (v8.8.0 — Time Fix & Clean UI)
 // @namespace    https://mdblist.com
-// @version      8.7.0
-// @description  Unified ratings. Added Alignment (Left/Right) option above sliders. Stable Links. Theme Sync.
+// @version      8.8.0
+// @description  Unified ratings. Fixed "Ends at" calculation (native locale). Alignment removed (Auto-Right). Stable Links.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v8.7.0 loading...');
+console.log('[Jellyfin Ratings] v8.8.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -26,12 +26,12 @@ const DEFAULTS = {
         showPercentSymbol: true,
         colorNumbers: true,
         colorIcons: false,
-        align: 'right', // Default alignment
         posX: 0,
         posY: 0,
         colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
         colorChoice: { red: 0, orange: 2, yg: 3, mg: 0 },
-        compactLevel: 0
+        compactLevel: 0,
+        endsAt24h: true // Default 24h
     },
     spacing: { ratingsTopGapPx: 4 },
     priorities: {
@@ -98,8 +98,8 @@ function loadConfig() {
         if (p.display && (isNaN(parseInt(p.display.posX)) || isNaN(parseInt(p.display.posY)))) {
             p.display.posX = 0; p.display.posY = 0;
         }
-        // Ensure align property exists
-        if (!p.display.align) p.display.align = 'right';
+        // Clean up old align property if present
+        delete p.display.align;
         
         return {
             sources: { ...DEFAULTS.sources, ...p.sources },
@@ -131,7 +131,6 @@ if (typeof GM_xmlhttpRequest === 'undefined') {
     };
 }
 
-// Helper: Slug Generator
 const localSlug = t => (t || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
 const styleEl = document.createElement('style');
@@ -141,14 +140,11 @@ document.head.appendChild(styleEl);
 function updateGlobalStyles() {
     document.documentElement.style.setProperty('--mdbl-x', `${CFG.display.posX}px`);
     document.documentElement.style.setProperty('--mdbl-y', `${CFG.display.posY}px`);
-    
-    // Map alignment option to flex property
-    const justify = CFG.display.align === 'left' ? 'flex-start' : 'flex-end';
 
     let rules = `
         .mdblist-rating-container {
             display: flex; flex-wrap: wrap; align-items: center;
-            justify-content: ${justify}; /* Dynamic Alignment */
+            justify-content: flex-end; /* Always Right Aligned */
             width: 100%; margin-top: ${CFG.spacing.ratingsTopGapPx}px;
             box-sizing: border-box;
             transform: translate(var(--mdbl-x), var(--mdbl-y));
@@ -168,11 +164,21 @@ function updateGlobalStyles() {
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; transition: filter 0.2s; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; }
+        
+        /* Ends At & Settings Icon */
         #customEndsAt { 
             font-size: inherit; opacity: 0.7; cursor: pointer; 
-            margin-left: 10px; margin-right: 24px; display: inline; vertical-align: baseline;
+            margin-left: 10px; display: inline; vertical-align: baseline;
         }
         #customEndsAt:hover { opacity: 1.0; text-decoration: underline; }
+        
+        #mdbl-settings-trigger {
+            display: inline-flex; align-items: center; justify-content: center;
+            margin-left: 6px; cursor: pointer; opacity: 0.6; transition: opacity 0.2s, transform 0.2s;
+            width: 1.1em; height: 1.1em; vertical-align: middle;
+        }
+        #mdbl-settings-trigger:hover { opacity: 1; transform: rotate(45deg); }
+        #mdbl-settings-trigger svg { width: 100%; height: 100%; fill: currentColor; }
     `;
 
     Object.keys(CFG.priorities).forEach(key => {
@@ -214,6 +220,7 @@ function refreshDomElements() {
         const text = CFG.display.showPercentSymbol ? `${Math.round(score)}%` : `${Math.round(score)}`;
         if (span.textContent !== text) span.textContent = text;
     });
+    updateEndsAt();
 }
 
 updateGlobalStyles();
@@ -231,15 +238,28 @@ function fixUrl(url, domain) {
 }
 
 document.addEventListener('click', (e) => {
-    if (e.target.id === 'customEndsAt') {
+    if (e.target.id === 'customEndsAt' || e.target.closest('#mdbl-settings-trigger')) {
         e.preventDefault(); e.stopPropagation();
         if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
+        return;
     }
 }, true);
 
+function formatTime(minutes) {
+    const d = new Date(Date.now() + minutes * 60000);
+    
+    // Use native locale formatting for correct time representation
+    const opts = CFG.display.endsAt24h 
+        ? { hour: '2-digit', minute: '2-digit', hour12: false } 
+        : { hour: 'numeric', minute: '2-digit', hour12: true };
+        
+    return d.toLocaleTimeString([], opts);
+}
+
 function updateEndsAt() {
+    // Hide native elements
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
-        if (el.id === 'customEndsAt' || el.closest('.mdblist-rating-container')) return;
+        if (el.id === 'customEndsAt' || el.id === 'mdbl-settings-trigger' || el.closest('.mdblist-rating-container')) return;
         const t = (el.textContent || '').toLowerCase();
         if (t.includes('ends at') || t.includes('endet um') || (t.includes('%') && (t.includes('tomato') || el.querySelector('img[src*="tomato"]')))) {
              el.style.display = 'none';
@@ -262,16 +282,17 @@ function updateEndsAt() {
         if (only) minutes = parseInt(only[1], 10);
     }
     
-    if (!minutes && primary.querySelector('#customEndsAt')) {
-        primary.querySelector('#customEndsAt').remove();
+    // Cleanup if no runtime
+    if (!minutes) {
+        if (primary.querySelector('#customEndsAt')) primary.querySelector('#customEndsAt').remove();
+        if (primary.querySelector('#mdbl-settings-trigger')) primary.querySelector('#mdbl-settings-trigger').remove();
         return;
     }
-    if (!minutes) return;
 
-    const end = new Date(Date.now() + minutes * 60000);
-    const timeStr = `${String(end.getHours()).padStart(2,'0')}:${String(end.getMinutes()).padStart(2,'0')}`;
+    const timeStr = formatTime(minutes);
     const content = `Ends at ${timeStr}`;
 
+    // 1. The Text
     let span = primary.querySelector('#customEndsAt');
     if (!span) {
         span = document.createElement('div');
@@ -282,6 +303,17 @@ function updateEndsAt() {
         else primary.appendChild(span);
     }
     if (span.textContent !== content) span.textContent = content;
+
+    // 2. The Icon
+    let icon = primary.querySelector('#mdbl-settings-trigger');
+    if (!icon) {
+        icon = document.createElement('div');
+        icon.id = 'mdbl-settings-trigger';
+        icon.title = 'Settings';
+        icon.innerHTML = `<svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>`;
+        if (span.nextSibling) span.parentNode.insertBefore(icon, span.nextSibling);
+        else span.parentNode.appendChild(icon);
+    }
 }
 
 function createRatingHtml(key, val, link, count, title, kind) {
@@ -338,7 +370,7 @@ function renderRatings(container, data, pageImdbId, type) {
                 add('trakt', v, lnk, c, 'Trakt', 'Votes');
             }
             else if (s.includes('letterboxd')) {
-                const lnk = ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : fixUrl(apiLink, 'letterboxd.com');
+                const lnk = ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : '#';
                 add('letterboxd', v, lnk, c, 'Letterboxd', 'Votes');
             }
             else if (s === 'tomatoes' || s.includes('rotten_tomatoes')) {
@@ -604,14 +636,6 @@ function renderMenuContent(panel) {
         ${row('Enable 24h format', `<input type="checkbox" id="d_24h" ${CFG.display.endsAt24h?'checked':''}>`)}
         
         <div class="mdbl-row wide">
-            <span>Alignment</span>
-            <select id="d_align" class="mdbl-select">
-                <option value="left" ${CFG.display.align === 'left' ? 'selected' : ''}>Left</option>
-                <option value="right" ${CFG.display.align === 'right' ? 'selected' : ''}>Right</option>
-            </select>
-        </div>
-
-        <div class="mdbl-row wide">
             <span>Position X (px)</span>
             <div class="grid-right" style="flex:1; display:flex; justify-content:flex-end; align-items:center; gap:8px;">
             <input type="range" id="d_x_rng" min="-1000" max="1000" value="${CFG.display.posX}">
@@ -679,8 +703,7 @@ function renderMenuContent(panel) {
         CFG.display.colorNumbers = panel.querySelector('#d_cnum').checked;
         CFG.display.colorIcons = panel.querySelector('#d_cicon').checked;
         CFG.display.showPercentSymbol = panel.querySelector('#d_pct').checked;
-        CFG.display.endsAt24h = panel.querySelector('#d_24h').checked;
-        CFG.display.align = panel.querySelector('#d_align').value; // Live Align
+        CFG.display.endsAt24h = panel.querySelector('#d_24h').checked; // Live Update 24h
         
         CFG.display.colorBands.redMax = parseInt(panel.querySelector('#th_red').value)||50;
         CFG.display.colorBands.orangeMax = parseInt(panel.querySelector('#th_orange').value)||69;
