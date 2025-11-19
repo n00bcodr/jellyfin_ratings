@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v7.6.0 — Theme Sync & Animation)
+// @name         Jellyfin Ratings (v7.7.0 — Links & Theme Fix)
 // @namespace    https://mdblist.com
-// @version      7.6.0
-// @description  Unified ratings. Matches Jellyfin Theme Color. Animated Hover. Ratings link to source. Menu via 'Ends at'.
+// @version      7.7.0
+// @description  Unified ratings. Fixed Links (API-based). Theme Color Sync (Accent). Live Drag-Sort. Wider Inputs.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v7.6.0 loading...');
+console.log('[Jellyfin Ratings] v7.7.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -64,14 +64,20 @@ const PALETTE_NAMES = {
 
 const CACHE_DURATION_API = 24 * 60 * 60 * 1000;
 const CACHE_DURATION_RT = 7 * 24 * 60 * 60 * 1000;
-
 const ICON_BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
+
 const LOGO = {
-    imdb: `${ICON_BASE}/IMDb.png`, tmdb: `${ICON_BASE}/TMDB.png`, trakt: `${ICON_BASE}/Trakt.png`,
-    letterboxd: `${ICON_BASE}/letterboxd.png`, anilist: `${ICON_BASE}/anilist.png`, myanimelist: `${ICON_BASE}/mal.png`,
-    roger_ebert: `${ICON_BASE}/Roger_Ebert.png`, rotten_tomatoes_critic: `${ICON_BASE}/Rotten_Tomatoes.png`,
-    rotten_tomatoes_audience: `${ICON_BASE}/Rotten_Tomatoes_positive_audience.png`, metacritic_critic: `${ICON_BASE}/Metacritic.png`,
-    metacritic_user: `${ICON_BASE}/mus2.png`,
+    imdb: `${ICON_BASE}/IMDb.png`,
+    tmdb: `${ICON_BASE}/TMDB.png`,
+    trakt: `${ICON_BASE}/Trakt.png`,
+    letterboxd: `${ICON_BASE}/letterboxd.png`,
+    anilist: `${ICON_BASE}/anilist.png`,
+    myanimelist: `${ICON_BASE}/mal.png`,
+    roger_ebert: `${ICON_BASE}/Roger_Ebert.png`,
+    rotten_tomatoes_critic: `${ICON_BASE}/Rotten_Tomatoes.png`,
+    rotten_tomatoes_audience: `${ICON_BASE}/Rotten_Tomatoes_positive_audience.png`,
+    metacritic_critic: `${ICON_BASE}/Metacritic.png`,
+    metacritic_user: `${ICON_BASE}/mus2.png`
 };
 
 const LABEL = {
@@ -131,7 +137,7 @@ function updateGlobalStyles() {
     document.documentElement.style.setProperty('--mdbl-y', `${CFG.display.posY}px`);
 
     let rules = `
-        /* --- Container --- */
+        /* Container */
         .mdblist-rating-container {
             display: flex; flex-wrap: wrap; align-items: center;
             justify-content: flex-end; 
@@ -141,23 +147,22 @@ function updateGlobalStyles() {
             z-index: 99999; position: relative; pointer-events: auto; flex-shrink: 0;
         }
 
-        /* --- Items --- */
+        /* Items */
         .mdbl-rating-item {
             display: inline-flex; align-items: center; margin: 0 6px; gap: 6px;
             text-decoration: none;
-            transition: transform 0.2s ease, filter 0.2s ease;
+            transition: transform 0.2s ease;
             cursor: pointer;
+            color: inherit;
         }
-        /* Hover Animation: Grow & Tilt */
         .mdbl-rating-item:hover {
-            transform: scale(1.15) rotate(3deg);
+            transform: scale(1.1) rotate(2deg);
             z-index: 1000;
         }
-
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; transition: filter 0.2s; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
 
-        /* --- Helpers --- */
+        /* Helpers */
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; }
         
         #customEndsAt { 
@@ -167,6 +172,7 @@ function updateGlobalStyles() {
         #customEndsAt:hover { opacity: 1.0; text-decoration: underline; }
     `;
 
+    // Live Order & Visibility
     Object.keys(CFG.priorities).forEach(key => {
         const isEnabled = CFG.sources[key];
         const order = CFG.priorities[key] || 999;
@@ -192,10 +198,12 @@ function getRatingColor(bands, choice, r) {
 }
 
 function refreshDomElements() {
-    updateGlobalStyles();
+    updateGlobalStyles(); 
+    
     document.querySelectorAll('.mdbl-rating-item').forEach(el => {
         const score = parseFloat(el.dataset.score);
         if (isNaN(score)) return;
+
         const color = getRatingColor(CFG.display.colorBands, CFG.display.colorChoice, score);
         const img = el.querySelector('img');
         const span = el.querySelector('span');
@@ -217,7 +225,6 @@ updateGlobalStyles();
    3. MAIN LOGIC
 ========================================================================== */
 
-// Only open settings on 'Ends At' click
 document.addEventListener('click', (e) => {
     if (e.target.id === 'customEndsAt') {
         e.preventDefault(); e.stopPropagation();
@@ -226,17 +233,15 @@ document.addEventListener('click', (e) => {
 }, true);
 
 function updateEndsAt() {
-    // Aggressive hide of native elements
+    // Hide native elements
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
         if (el.id === 'customEndsAt' || el.closest('.mdblist-rating-container')) return;
         const t = (el.textContent || '').toLowerCase();
-        // Hide "Ends at" AND standard RT ratings to clean up the row
         if (t.includes('ends at') || t.includes('endet um') || (t.includes('%') && (t.includes('tomato') || el.querySelector('img[src*="tomato"]')))) {
              el.style.display = 'none';
         }
     });
 
-    // Also hide the explicit RT containers if found
     document.querySelectorAll('.mediaInfoCriticRating, .mediaInfoAudienceRating, .starRatingContainer').forEach(el => el.style.display = 'none');
 
     const primary = document.querySelector('.itemMiscInfo.itemMiscInfo-primary') || document.querySelector('.itemMiscInfo');
@@ -269,7 +274,6 @@ function updateEndsAt() {
         span = document.createElement('div');
         span.id = 'customEndsAt';
         span.title = 'Click to open Settings';
-        // Insert clean
         const ref = primary.querySelector('.mediaInfoOfficialRating') || primary.lastElementChild;
         if(ref && ref.parentNode === primary) primary.insertBefore(span, ref.nextSibling);
         else primary.appendChild(span);
@@ -284,7 +288,6 @@ function createRatingHtml(key, val, link, count, title) {
     const n = parseFloat(val) * (SCALE[key] || 1);
     const r = Math.round(n);
     
-    // Entire div is link anchor now
     return `
         <a href="${link || '#'}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}">
             <img src="${LOGO[key]}" alt="${title}" title="${title} ${count ? '('+count+')' : ''}">
@@ -297,23 +300,31 @@ function renderRatings(container, data, imdbId) {
     let html = '';
     const add = (k, v, lnk, cnt, tit) => html += createRatingHtml(k, v, lnk, cnt, tit);
     
+    // Use data from API to determine IDs if possible
+    const ids = {
+        imdb: data.imdbid || imdbId,
+        tmdb: data.id, // mdb object usually has id at root
+        trakt: data.traktid
+    };
+
     if (data.ratings) {
         data.ratings.forEach(r => {
             const s = (r.source || '').toLowerCase();
             const v = r.value;
             const c = r.votes || r.count;
             
-            if (s.includes('imdb')) add('imdb', v, `https://www.imdb.com/title/${imdbId}/`, c, 'IMDb');
+            // LINKS FIXED: Using IDs from API response
+            if (s.includes('imdb')) add('imdb', v, ids.imdb ? `https://www.imdb.com/title/${ids.imdb}/` : '#', c, 'IMDb');
             else if (s.includes('tmdb')) add('tmdb', v, `https://www.themoviedb.org/${container.dataset.type}/${container.dataset.tmdbId}`, c, 'TMDb');
-            else if (s.includes('trakt')) add('trakt', v, `https://trakt.tv/search/imdb/${imdbId}`, c, 'Trakt');
-            else if (s.includes('letterboxd')) add('letterboxd', v, `https://letterboxd.com/imdb/${imdbId}/`, c, 'Letterboxd');
-            else if (s === 'tomatoes' || s.includes('rotten_tomatoes')) add('rotten_tomatoes_critic', v, '#', c, 'RT Critic');
-            else if (s.includes('popcorn') || s.includes('audience')) add('rotten_tomatoes_audience', v, '#', c, 'RT Audience');
-            else if (s.includes('metacritic') && !s.includes('user')) add('metacritic_critic', v, '#', c, 'Metacritic');
-            else if (s.includes('metacritic') && s.includes('user')) add('metacritic_user', v, '#', c, 'User');
-            else if (s.includes('roger')) add('roger_ebert', v, '#', c, 'Roger Ebert');
-            else if (s.includes('anilist')) add('anilist', v, '#', c, 'AniList');
-            else if (s.includes('myanimelist')) add('myanimelist', v, '#', c, 'MAL');
+            else if (s.includes('trakt')) add('trakt', v, ids.trakt ? `https://trakt.tv/movies/${ids.trakt}` : '#', c, 'Trakt'); // Basic trakt link fallback
+            else if (s.includes('letterboxd')) add('letterboxd', v, r.url || (ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : '#'), c, 'Letterboxd');
+            else if (s === 'tomatoes' || s.includes('rotten_tomatoes')) add('rotten_tomatoes_critic', v, r.url || '#', c, 'RT Critic');
+            else if (s.includes('popcorn') || s.includes('audience')) add('rotten_tomatoes_audience', v, r.url || '#', c, 'RT Audience');
+            else if (s.includes('metacritic') && !s.includes('user')) add('metacritic_critic', v, r.url || '#', c, 'Metacritic');
+            else if (s.includes('metacritic') && s.includes('user')) add('metacritic_user', v, r.url || '#', c, 'User');
+            else if (s.includes('roger')) add('roger_ebert', v, r.url || '#', c, 'Roger Ebert');
+            else if (s.includes('anilist')) add('anilist', v, r.url || '#', c, 'AniList');
+            else if (s.includes('myanimelist')) add('myanimelist', v, r.url || '#', c, 'MAL');
         });
     }
     
@@ -406,13 +417,14 @@ function initMenu() {
     #mdbl-panel .mdbl-row, #mdbl-panel .mdbl-source { display:grid; grid-template-columns:1fr var(--mdbl-right-col); align-items:center; gap:10px; padding:8px 10px; border-radius:12px; }
     #mdbl-panel .mdbl-row { background:transparent; border:1px solid rgba(255,255,255,0.06); min-height: 48px; box-sizing:border-box; }
     #mdbl-panel .mdbl-row.wide { grid-template-columns:1fr var(--mdbl-right-col-wide); }
+    
+    /* Theme Color Sync */
     #mdbl-panel input[type="checkbox"] { 
         transform: scale(1.2); cursor: pointer; 
         accent-color: var(--theme-primary-color, #2a6df4); 
     }
     #mdbl-panel input[type="text"] { width:100%; padding:10px 0; border:0; background:transparent; color:#eaeaea; font-size:14px; outline:none; }
     
-    /* Input & Spinner Styling */
     #mdbl-panel select, #mdbl-panel input.mdbl-pos-input, #mdbl-panel input.mdbl-num-input {
         padding:0 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:#121317; color:#eaeaea;
         height:32px; line-height: 32px; box-sizing:border-box; display:inline-block; color-scheme: dark;
@@ -423,13 +435,15 @@ function initMenu() {
 
     #mdbl-panel .mdbl-actions { position:sticky; bottom:0; background:rgba(22,22,26,0.96); display:flex; gap:10px; padding:12px 16px; border-top:1px solid rgba(255,255,255,0.08); }
     #mdbl-panel button { padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:#1b1c20; color:#eaeaea; cursor:pointer; }
+    
+    /* Theme Button */
     #mdbl-panel button.primary { 
-        background: var(--theme-primary-color, #2a6df4); 
-        border-color: var(--theme-primary-color, #2a6df4); 
+        background: var(--theme-primary-color, #2a6df4) !important; 
+        border-color: var(--theme-primary-color, #2a6df4) !important; 
         color: #fff; 
     }
     
-    /* Sliders using Theme Color */
+    /* Theme Sliders */
     #mdbl-panel input[type="range"] { flex: 1; margin: 0 12px; cursor: pointer; accent-color: var(--theme-primary-color, #2a6df4); }
 
     #mdbl-sources { display:flex; flex-direction:column; gap:8px; }
@@ -590,6 +604,7 @@ function renderMenuContent(panel) {
 
     panel.querySelector('#mdbl-close').onclick = () => panel.style.display = 'none';
     
+    // Live Updates
     const updateLiveAll = () => {
         CFG.display.colorNumbers = panel.querySelector('#d_cnum').checked;
         CFG.display.colorIcons = panel.querySelector('#d_cicon').checked;
@@ -634,16 +649,18 @@ function renderMenuContent(panel) {
         panel.setAttribute('data-compact', e.target.checked ? '1':'0');
     });
 
+    // Live Sort (DragOver)
     let dragSrc = null;
     panel.querySelectorAll('.mdbl-src-row').forEach(row => {
-        row.addEventListener('dragstart', e => { dragSrc = row; e.dataTransfer.effectAllowed = 'move'; }); // removed opacity for native ghost
-        row.addEventListener('dragover', e => { e.preventDefault(); });
-        row.addEventListener('drop', e => {
-            e.preventDefault();
-            if (dragSrc !== row) {
+        row.addEventListener('dragstart', e => { dragSrc = row; e.dataTransfer.effectAllowed = 'move'; });
+        // Update on dragover (live sort)
+        row.addEventListener('dragover', e => { 
+            e.preventDefault(); 
+            if (dragSrc && dragSrc !== row) {
                 const list = row.parentNode;
-                const srcI = [...list.children].indexOf(dragSrc);
-                const tgtI = [...list.children].indexOf(row);
+                const all = [...list.children];
+                const srcI = all.indexOf(dragSrc);
+                const tgtI = all.indexOf(row);
                 if (srcI < tgtI) list.insertBefore(dragSrc, row.nextSibling);
                 else list.insertBefore(dragSrc, row);
                 
@@ -663,6 +680,12 @@ function renderMenuContent(panel) {
     panel.querySelector('#mdbl-btn-reset').onclick = () => {
         if(confirm('Reset all settings?')) { localStorage.removeItem('mdbl_prefs'); location.reload(); }
     };
+    
+    const getInjectorKey = () => { try { return (window.MDBL_KEYS && window.MDBL_KEYS.MDBLIST) ? String(window.MDBL_KEYS.MDBLIST) : ''; } catch { return ''; } };
+    if (getInjectorKey()) {
+       const kw = panel.querySelector('#mdbl-sec-keys');
+       if(kw) { kw.innerHTML = ''; kw.style.display = 'none'; }
+    }
 }
 
 function createColorBandRow(id, lbl, val, key) {
