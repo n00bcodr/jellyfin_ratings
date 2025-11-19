@@ -1,13 +1,26 @@
+Hier ist das aktualisierte Skript (Version 6.4.2).
+
+**Änderungen und Fixes:**
+
+1.  **Live Preview:** Wenn Sie die Regler bewegen, verschieben sich die Bewertungen jetzt **sofort** auf der Seite, ohne dass Sie speichern müssen. So sehen Sie direkt, wo sie landen.
+2.  **Verschwinden gefixt:** Ich habe die Standardwerte und die CSS-Berechnung gehärtet, damit ungültige Werte (NaN) nicht dazu führen, dass der Container unsichtbar wird.
+3.  **Zeitformat:** Das Dropdown "Ends at format" wurde durch eine Checkbox **"Enable 24h format"** ersetzt.
+
+### Installationsanleitung
+
+Kopieren Sie den gesamten Code unten und ersetzen Sie damit den Inhalt Ihrer `ratings.js` Datei.
+
+```javascript
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.4.1 — RT deep-link + Fallback + XY Position)
+// @name         Jellyfin Ratings (v6.4.2 — Live Preview + XY Fix)
 // @namespace    https://mdblist.com
-// @version      6.4.1
-// @description  Unified ratings for Jellyfin 10.11.x with XY positioning.
+// @version      6.4.2
+// @description  Unified ratings for Jellyfin with live-preview positioning and 24h toggle.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-/* ---------- Defaults (overridable via window.MDBL_CFG) ---------- */
+/* ---------- Defaults ---------- */
 const DEFAULT_ENABLE_SOURCES = {
   imdb:true, tmdb:true, trakt:true, letterboxd:true,
   rotten_tomatoes_critic:true, rotten_tomatoes_audience:true,
@@ -16,26 +29,23 @@ const DEFAULT_ENABLE_SOURCES = {
 };
 const DEFAULT_DISPLAY = {
   showPercentSymbol:true,
-  colorNumbers:true,     // number coloring
-  colorIcons:false,      // icon glow
-  // align entfernt, stattdessen X/Y:
-  posX: 0,
-  posY: 0,
-  endsAtFormat:'24h',    // '24h' | '12h'
-  endsAtBullet:false,    // always off
-  // New: adjustable color bands & palette selection
+  colorNumbers:true,
+  colorIcons:false,
+  posX: 0,               // Standard X-Verschiebung
+  posY: 0,               // Standard Y-Verschiebung
+  endsAtFormat:'24h',    // '24h' oder '12h'
+  endsAtBullet:false,
   colorBands:{ redMax:50, orangeMax:69, ygMax:79 },
-  colorChoice:{ red:0, orange:2, yg:3, mg:0 }
-,
+  colorChoice:{ red:0, orange:2, yg:3, mg:0 },
   compactLevel:0
 };
 
-// === New color swatches & helper ===
+/* === Color Swatches & Helpers === */
 const COLOR_SWATCHES = {
-  red:    ['#e53935','#f44336','#d32f2f','#c62828'],            // poor
-  orange: ['#fb8c00','#f39c12','#ffa726','#ef6c00'],            // okay
-  yg:     ['#9ccc65','#c0ca33','#aeea00','#cddc39'],            // orangy‑green (decent)
-  mg:     ['#43a047','#66bb6a','#388e3c','#81c784']             // medium green (good+)
+  red:    ['#e53935','#f44336','#d32f2f','#c62828'],
+  orange: ['#fb8c00','#f39c12','#ffa726','#ef6c00'],
+  yg:     ['#9ccc65','#c0ca33','#aeea00','#cddc39'],
+  mg:     ['#43a047','#66bb6a','#388e3c','#81c784']
 };
 function getRatingColor(bands, choice, r){
   bands  = bands  || { redMax:50, orangeMax:69, ygMax:79 };
@@ -61,12 +71,9 @@ const SCALE_MULTIPLIER = {
   metacritic_critic:1, metacritic_user:10, myanimelist:10, anilist:1,
   rotten_tomatoes_critic:1, rotten_tomatoes_audience:1
 };
-const COLOR_THRESHOLDS = { green:75, orange:50, red:0 };
-const COLOR_VALUES     = { green:'limegreen', orange:'orange', red:'crimson' };
 
-const CACHE_DURATION  = 7*24*60*60*1000; // 7 days
+const CACHE_DURATION  = 7*24*60*60*1000; 
 const NS              = 'mdbl_';
-
 const ICON_BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
 const LOGO = {
   imdb:`${ICON_BASE}/IMDb.png`, tmdb:`${ICON_BASE}/TMDB.png`,
@@ -79,7 +86,7 @@ const LOGO = {
   metacritic_user:`${ICON_BASE}/mus2.png`,
 };
 
-/* ---------- Merge injector config & keys ---------- */
+/* ---------- Config Merge ---------- */
 const __CFG__ = (typeof window!=='undefined' && window.MDBL_CFG) ? window.MDBL_CFG : {};
 const ENABLE_SOURCES  = Object.assign({}, DEFAULT_ENABLE_SOURCES, __CFG__.sources   || {});
 const DISPLAY         = Object.assign({}, DEFAULT_DISPLAY,        __CFG__.display   || {});
@@ -132,7 +139,6 @@ const Util = {
 
 let currentImdbId=null;
 
-/* Remove Jellyfin "Ends at" rows, keep ours */
 function removeBuiltInEndsAt(){
   document.querySelectorAll('.itemMiscInfo-secondary').forEach(r=>{
     if (/\bends\s+at\b/i.test(r.textContent||'')) r.remove();
@@ -144,7 +150,6 @@ function removeBuiltInEndsAt(){
   });
 }
 
-/* Primary row helpers */
 const findPrimaryRow=()=>document.querySelector('.itemMiscInfo.itemMiscInfo-primary')||document.querySelector('.itemMiscInfo-primary')||document.querySelector('.itemMiscInfo');
 function findYearChip(primary){
   for (const el of primary.querySelectorAll('.mediaInfoItem, .mediaInfoText, span, div')){
@@ -162,7 +167,6 @@ function readAndHideOriginalBadge(){
   const v=(original.textContent||'').trim(); original.style.display='none'; return v||null;
 }
 
-/* Clone parental rating to start */
 function ensureInlineBadge(){
   const primary=findPrimaryRow(); if(!primary) return;
   const ratingValue=readAndHideOriginalBadge(); if(!ratingValue) return;
@@ -176,7 +180,6 @@ function ensureInlineBadge(){
   (before&&before.parentNode)?before.parentNode.insertBefore(badge,before):primary.insertBefore(badge,primary.firstChild);
 }
 
-/* Ends at */
 function parseRuntimeToMinutes(text){
   if(!text) return 0;
   const m=text.match(/(?:(\d+)\s*h(?:ours?)?\s*)?(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i);
@@ -208,14 +211,12 @@ function ensureEndsAtInline(){
   span.textContent=content;
 }
 
-/* Hide default */
 function hideDefaultRatingsOnce(){
   document.querySelectorAll('.itemMiscInfo.itemMiscInfo-primary').forEach(box=>{
     box.querySelectorAll('.starRatingContainer,.mediaInfoCriticRating').forEach(el=>el.style.display='none');
   });
 }
 
-/* Containers + scan */
 function scanLinks(){
   document.querySelectorAll('a.emby-button[href*="imdb.com/title/"]').forEach(a=>{
     if(a.dataset.mdblSeen==='1') return; a.dataset.mdblSeen='1';
@@ -228,16 +229,22 @@ function scanLinks(){
     document.querySelectorAll('.itemMiscInfo.itemMiscInfo-primary').forEach(b=>{
       const ref=b.querySelector('.mediaInfoItem.mediaInfoText.mediaInfoOfficialRating')||b.querySelector('.mediaInfoItem:last-of-type'); if(!ref) return;
       if (ref.nextElementSibling && ref.nextElementSibling.classList?.contains('mdblist-rating-container')) return;
+      
       const div=document.createElement('div'); div.className='mdblist-rating-container';
       
-      // --- MODIFIED: Use XY Translation instead of Flex Align ---
-      div.style=`display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;width:calc(100% + 6px);margin-left:-6px;margin-top:${SPACING.ratingsTopGapPx}px;padding-right:0;box-sizing:border-box;transform: translate(${DISPLAY.posX}px, ${DISPLAY.posY}px);`;
+      // Safely parse X/Y for initial render
+      const px = parseFloat(DISPLAY.posX) || 0;
+      const py = parseFloat(DISPLAY.posY) || 0;
+      
+      // Layout: default flex-start. Position via transform.
+      div.style=`display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;width:calc(100% + 6px);margin-left:-6px;margin-top:${SPACING.ratingsTopGapPx}px;padding-right:0;box-sizing:border-box;transform: translate(${px}px, ${py}px); z-index: 10;`;
 
       Object.assign(div.dataset,{type, tmdbId, mdblFetched:'0'}); ref.insertAdjacentElement('afterend',div);
     });
   });
   hideDefaultRatingsOnce();
 }
+
 function updateRatings(){
   document.querySelectorAll('.mdblist-rating-container').forEach(c=>{
     if(c.dataset.mdblFetched==='1') return; const type=c.dataset.type||'movie', tmdbId=c.dataset.tmdbId; if(!tmdbId) return;
@@ -245,7 +252,6 @@ function updateRatings(){
   });
 }
 
-/* Render one badge — icon links out (with tooltip), number opens settings */
 function appendRating(container, logo, val, title, key, link, count, kind){
   if(!Util.ok(val)) return;
   const n=Util.normalize(val,key); if(!Util.ok(n)) return;
@@ -256,34 +262,28 @@ function appendRating(container, logo, val, title, key, link, count, kind){
   wrap.dataset.source=key;
   wrap.style='display:inline-flex;align-items:center;margin:0 6px;gap:6px;';
 
-  // icon (external link)
   const a=document.createElement('a'); a.href=link||'#'; if(link&&link!=='#') a.target='_blank'; a.style.textDecoration='none';
   const img=document.createElement('img'); img.src=logo; img.alt=title; img.style='height:1.3em;vertical-align:middle;';
   const labelCount=(typeof count==='number'&&isFinite(count))?`${count.toLocaleString()} ${kind|| (key==='rotten_tomatoes_critic'?'Reviews':'Votes')}`:'';
   img.title=labelCount?`${title} — ${labelCount}`:title;
   a.appendChild(img);
 
-  // number (opens settings)
   const s=document.createElement('span'); s.textContent=disp; s.title='Open settings';
   s.style='font-size:1em;vertical-align:middle;cursor:pointer;';
   s.addEventListener('click',e=>{ e.preventDefault(); e.stopPropagation(); if(window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS(); });
 
-  // coloring
   if (DISPLAY.colorNumbers || DISPLAY.colorIcons){
     const col = getRatingColor(DISPLAY.colorBands, DISPLAY.colorChoice, r);
     if (DISPLAY.colorNumbers) s.style.color=col;
     if (DISPLAY.colorIcons)   img.style.filter=`drop-shadow(0 0 3px ${col})`;
   }
 
-
   wrap.append(a,s); container.append(wrap);
-  // sort by configured priority
   [...container.children]
     .sort((a,b)=>(RATING_PRIORITY[a.dataset.source]??999)-(RATING_PRIORITY[b.dataset.source]??999))
     .forEach(el=>container.appendChild(el));
 }
 
-/* -------- RT Direct Link Resolver (Wikidata P1258) -------- */
 function fetchRTDirectLink(imdbId, cb){
   const key = `${NS}rturl_${imdbId}`;
   const cache = localStorage.getItem(key);
@@ -304,7 +304,6 @@ function fetchRTDirectLink(imdbId, cb){
   });
 }
 
-/* -------- Fetch ratings (MDBList + extras; RT deep-link + fallback) -------- */
 function fetchRatings(tmdbId, imdbId, container, type='movie'){
   GM_xmlhttpRequest({
     method:'GET',
@@ -314,7 +313,6 @@ function fetchRatings(tmdbId, imdbId, container, type='movie'){
       let d; try{ d=JSON.parse(r.responseText); }catch{ return; }
       const title=d.title||''; const slug=Util.slug(title);
 
-      // Collect RT from MDBList first; append after we resolve direct link
       let rtCriticVal=null, rtCriticCnt=null;
       let rtAudienceVal=null, rtAudienceCnt=null;
 
@@ -329,15 +327,12 @@ function fetchRatings(tmdbId, imdbId, container, type='movie'){
           appendRating(container,LOGO.trakt,v,'Trakt','trakt',`https://trakt.tv/search/imdb/${imdbId}`,cnt,'Votes');
         else if (s.includes('letterboxd') && ENABLE_SOURCES.letterboxd)
           appendRating(container,LOGO.letterboxd,v,'Letterboxd','letterboxd',`https://letterboxd.com/imdb/${imdbId}/`,cnt,'Votes');
-
-        // Capture RT from MDBList; we'll add after direct-link resolution
         else if ((s==='tomatoes' || s.includes('rotten_tomatoes'))) {
           rtCriticVal = v; rtCriticCnt = cnt;
         }
         else if ((s.includes('popcorn') || s.includes('audience'))) {
           rtAudienceVal = v; rtAudienceCnt = cnt;
         }
-
         else if (s==='metacritic' && ENABLE_SOURCES.metacritic_critic){
           const seg=(container.dataset.type==='show')?'tv':'movie';
           const link=slug?`https://www.metacritic.com/${seg}/${slug}`:`https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
@@ -362,8 +357,6 @@ function fetchRatings(tmdbId, imdbId, container, type='movie'){
             appendRating(container, LOGO.audience, rtAudienceVal, 'RT Audience', 'rotten_tomatoes_audience', link, rtAudienceCnt, 'Votes');
         });
       }
-
-      // Extra sources and RT HTML fallback only if MDBList had no RT
       if (ENABLE_SOURCES.anilist)     fetchAniList(imdbId, container);
       if (ENABLE_SOURCES.myanimelist) fetchMAL(imdbId, container);
       if (!hasMDBL_RT && (ENABLE_SOURCES.rotten_tomatoes_critic || ENABLE_SOURCES.rotten_tomatoes_audience))
@@ -372,7 +365,6 @@ function fetchRatings(tmdbId, imdbId, container, type='movie'){
   });
 }
 
-/* AniList */
 function fetchAniList(imdbId, container){
   const q=`SELECT ?anilist WHERE { ?item wdt:P345 "${imdbId}" . ?item wdt:P8729 ?anilist . } LIMIT 1`;
   GM_xmlhttpRequest({
@@ -397,7 +389,6 @@ function fetchAniList(imdbId, container){
   });
 }
 
-/* MAL */
 function fetchMAL(imdbId, container){
   const q=`SELECT ?mal WHERE { ?item wdt:P345 "${imdbId}" . ?item wdt:P4086 ?mal . } LIMIT 1`;
   GM_xmlhttpRequest({
@@ -423,7 +414,6 @@ function fetchMAL(imdbId, container){
   });
 }
 
-/* RT HTML Fallback (parse page) */
 function fetchRT_HTMLFallback(imdbId, container){
   const key=`${NS}rt_${imdbId}`;
   const cache=localStorage.getItem(key);
@@ -467,7 +457,6 @@ function fetchRT_HTMLFallback(imdbId, container){
   }
 }
 
-/* Pipeline */
 function updateAll(){
   try{
     removeBuiltInEndsAt();
@@ -486,7 +475,7 @@ updateAll();
 })();
 
 /* ======================================================
-   SETTINGS (numbers open this panel)
+   SETTINGS PANEL
 ====================================================== */
 (function settingsMenu(){
   const PREFS_KEY=`${NS}prefs`;
@@ -535,8 +524,6 @@ updateAll();
   #mdbl-close:hover{background:rgba(255,255,255,0.06);color:#fff}
   #mdbl-panel .mdbl-section{padding:12px 16px;display:flex;flex-direction:column;gap:10px}
   #mdbl-panel .mdbl-subtle{color:#9aa0a6;font-size:12px}
-
-  /* unified two-column grid for perfect checkbox alignment */
   #mdbl-panel .mdbl-row,
   #mdbl-panel .mdbl-source{
     display:grid;grid-template-columns: 1fr var(--mdbl-right-col);
@@ -545,68 +532,50 @@ updateAll();
   #mdbl-panel .mdbl-row{background:transparent;border:1px solid rgba(255,255,255,0.06)}
   #mdbl-panel .mdbl-row.wide{ grid-template-columns: 1fr var(--mdbl-right-col-wide); }
   #mdbl-panel input[type="checkbox"]{transform:scale(1.1);justify-self:end}
-
-  /* inputs/selects */
   #mdbl-panel input[type="text"]{width:100%;padding:10px 0;border:0;background:transparent;color:#eaeaea;font-size:14px;outline:none}
   #mdbl-panel select{padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#121317;color:#eaeaea;justify-self:end}
   #mdbl-panel .mdbl-select{width:200px}
-
-  /* actions */
   #mdbl-panel .mdbl-actions{position:sticky;bottom:0;background:rgba(22,22,26,0.96);display:flex;gap:10px;padding:12px 16px;border-top:1px solid rgba(255,255,255,0.08)}
   #mdbl-panel button{padding:9px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#1b1c20;color:#eaeaea;cursor:pointer}
   #mdbl-panel button.primary{background:#2a6df4;border-color:#2a6df4;color:#fff}
-
-  /* sources list + boxes */
   #mdbl-sources{display:flex;flex-direction:column;gap:8px}
   .mdbl-source{background:#0f1115;border:1px solid rgba(255,255,255,0.1)}
   .mdbl-src-left{display:flex;align-items:center;gap:10px}
   .mdbl-src-left img{height:18px;width:auto}
   .mdbl-src-left .name{font-size:13px}
   .mdbl-drag-handle{justify-self:start;opacity:0.6;cursor:grab}
-
-  /* API key box styled like a source row (single clean box) */
   #mdbl-key-box{background:#0f1115;border:1px solid rgba(255,255,255,0.1);padding:10px;border-radius:12px}
-  
   .mdbl-grid{display:grid;grid-template-columns:1fr;gap:10px;}
   .mdbl-grid .grid-row{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:12px;}
   @media (max-width: 420px){ .mdbl-grid .grid-row{grid-template-columns:1fr;} }
   .grid-right{display:flex;align-items:center;gap:8px;justify-content:flex-end;}
   .mdbl-num{width:5ch;text-align:right;margin-left:6px;}
   .sw{display:inline-block;width:18px;height:18px;border-radius:4px;border:1px solid rgba(255,255,255,0.25);}
-
   .mdbl-grid .mdbl-select{min-width:var(--mdbl-right-col-wide);}
   #mdbl-panel ul, #mdbl-panel li{list-style:none;margin:0;padding:0;}
   #mdbl-panel *::marker{content:none;}
   #mdbl-panel hr{border:0;border-top:1px solid rgba(255,255,255,0.08);margin:10px 0;}
-/* === Compact toggle layout (buttons left, toggle right) === */
-#mdbl-panel .mdbl-actions{ display:flex; align-items:center; gap:8px; }
-#mdbl-panel .mdbl-actions .mdbl-grow{ flex:1; }
-#mdbl-panel .mdbl-actions .mdbl-compact{ display:inline-flex; align-items:center; gap:6px; opacity:0.95; }
-#mdbl-panel .mdbl-actions .mdbl-compact input{ margin:0; }
-
-/* === Content-only compact mode (plus slightly narrower panel) === */
-#mdbl-panel[data-compact="1"]{
-  --mdbl-right-col:44px; --mdbl-right-col-wide:180px;
-  width:440px;
-}
-#mdbl-panel[data-compact="1"] header{ padding:8px 12px; }
-#mdbl-panel[data-compact="1"] header h3{ font-size:14px; }
-#mdbl-panel[data-compact="1"] .mdbl-section{ padding:8px 12px; gap:6px; }
-#mdbl-panel[data-compact="1"] .mdbl-row,
-#mdbl-panel[data-compact="1"] .mdbl-source{ gap:6px; padding:5px 6px; border-radius:10px; }
-#mdbl-panel[data-compact="1"] .mdbl-row.wide{ grid-template-columns: 1fr var(--mdbl-right-col-wide); }
-#mdbl-panel[data-compact="1"] input[type="checkbox"]{ transform:scale(1.0); }
-#mdbl-panel[data-compact="1"] .mdbl-src-left img{ height:16px; }
-#mdbl-panel[data-compact="1"] .mdbl-src-left .name{ font-size:12.5px; }
-#mdbl-panel[data-compact="1"] .mdbl-actions{ padding:6px 10px; }
-#mdbl-panel[data-compact="1"] button{ padding:8px 10px; font-size:13px; }
-#mdbl-panel[data-compact="1"] .mdbl-grid{ gap:6px; }
-#mdbl-panel[data-compact="1"] .mdbl-grid .grid-row{ gap:8px; }
-#mdbl-panel[data-compact="1"] .grid-right{ gap:6px; }
-#mdbl-panel[data-compact="1"] .mdbl-num{ width:4ch; font-size:13px; }
-#mdbl-panel[data-compact="1"] .sw{ width:16px; height:16px; }
-
-#mdbl-panel[data-compact="1"] hr{ margin:6px 0; }
+  #mdbl-panel .mdbl-actions{ display:flex; align-items:center; gap:8px; }
+  #mdbl-panel .mdbl-actions .mdbl-grow{ flex:1; }
+  #mdbl-panel .mdbl-actions .mdbl-compact{ display:inline-flex; align-items:center; gap:6px; opacity:0.95; }
+  #mdbl-panel .mdbl-actions .mdbl-compact input{ margin:0; }
+  #mdbl-panel[data-compact="1"]{ --mdbl-right-col:44px; --mdbl-right-col-wide:180px; width:440px; }
+  #mdbl-panel[data-compact="1"] header{ padding:8px 12px; }
+  #mdbl-panel[data-compact="1"] header h3{ font-size:14px; }
+  #mdbl-panel[data-compact="1"] .mdbl-section{ padding:8px 12px; gap:6px; }
+  #mdbl-panel[data-compact="1"] .mdbl-row, #mdbl-panel[data-compact="1"] .mdbl-source{ gap:6px; padding:5px 6px; border-radius:10px; }
+  #mdbl-panel[data-compact="1"] .mdbl-row.wide{ grid-template-columns: 1fr var(--mdbl-right-col-wide); }
+  #mdbl-panel[data-compact="1"] input[type="checkbox"]{ transform:scale(1.0); }
+  #mdbl-panel[data-compact="1"] .mdbl-src-left img{ height:16px; }
+  #mdbl-panel[data-compact="1"] .mdbl-src-left .name{ font-size:12.5px; }
+  #mdbl-panel[data-compact="1"] .mdbl-actions{ padding:6px 10px; }
+  #mdbl-panel[data-compact="1"] button{ padding:8px 10px; font-size:13px; }
+  #mdbl-panel[data-compact="1"] .mdbl-grid{ gap:6px; }
+  #mdbl-panel[data-compact="1"] .mdbl-grid .grid-row{ gap:8px; }
+  #mdbl-panel[data-compact="1"] .grid-right{ gap:6px; }
+  #mdbl-panel[data-compact="1"] .mdbl-num{ width:4ch; font-size:13px; }
+  #mdbl-panel[data-compact="1"] .sw{ width:16px; height:16px; }
+  #mdbl-panel[data-compact="1"] hr{ margin:6px 0; }
 `;
   if (!document.getElementById('mdbl-settings-css')){
     const style=document.createElement('style'); style.id='mdbl-settings-css'; style.textContent=css; document.head.appendChild(style);
@@ -636,46 +605,32 @@ updateAll();
     </div>
   `;
   document.body.appendChild(panel);
-  // --- Compact toggle wiring (binary: 0=normal, 1=compact) ---
   (function(){
     try{
       const prefs0 = Object.assign({}, DEFAULTS, loadPrefs()||{});
-      let cl = 0;
-      if (prefs0 && prefs0.display && typeof prefs0.display.compactLevel !== 'undefined') {
-        cl = +prefs0.display.compactLevel || 0;
-      }
-      if (cl > 1) cl = 1;
-      if (cl < 0) cl = 0;
+      let cl = +prefs0.display.compactLevel || 0;
+      if (cl > 1) cl = 1; if (cl < 0) cl = 0;
       const chk = panel.querySelector('#mdbl-compact-toggle');
       if (chk){
         chk.checked = !!cl;
         panel.setAttribute('data-compact', chk.checked ? '1':'0');
-        chk.addEventListener('change', ()=> {
-          panel.setAttribute('data-compact', chk.checked ? '1':'0');
-        });
-        // Persist after any Save (run after other handlers)
+        chk.addEventListener('change', ()=> { panel.setAttribute('data-compact', chk.checked ? '1':'0'); });
         document.addEventListener('click', function(ev){
-          const t = ev.target;
-          if (t && t.id === 'mdbl-btn-save'){
+          if (ev.target && ev.target.id === 'mdbl-btn-save'){
             setTimeout(()=>{
-              const p = (loadPrefs() || {});
-              p.display = Object.assign({}, DEFAULT_DISPLAY, p.display||{});
+              const p = loadPrefs() || {}; p.display = Object.assign({}, DEFAULT_DISPLAY, p.display||{});
               p.display.compactLevel = chk.checked ? 1 : 0;
               try{ localStorage.setItem(`${NS}prefs`, JSON.stringify(p)); }catch{}
             }, 0);
           }
         });
-        // Reset behavior: enforce normal mode visually + in prefs
         document.addEventListener('click', function(ev){
-          const t = ev.target;
-          if (t && t.id === 'mdbl-btn-reset'){
+          if (ev.target && ev.target.id === 'mdbl-btn-reset'){
             setTimeout(()=>{
-              const p = (loadPrefs() || {});
-              p.display = Object.assign({}, DEFAULT_DISPLAY, p.display||{});
+              const p = loadPrefs() || {}; p.display = Object.assign({}, DEFAULT_DISPLAY, p.display||{});
               p.display.compactLevel = 0;
               try{ localStorage.setItem(`${NS}prefs`, JSON.stringify(p)); }catch{}
-              chk.checked = false;
-              panel.setAttribute('data-compact','0');
+              chk.checked = false; panel.setAttribute('data-compact','0');
             }, 0);
           }
         });
@@ -683,11 +638,7 @@ updateAll();
     }catch(e){}
   })();
 
-
-  // close on outside click
   document.addEventListener('mousedown', e=>{ if(panel.style.display!=='block') return; if(!panel.contains(e.target)) hide(); });
-
-  // draggable header
   (function makePanelDraggable(){
     const header=panel.querySelector('#mdbl-drag-handle'); let drag=false,sx=0,sy=0,sl=0,st=0;
     header.addEventListener('mousedown', e=>{
@@ -736,6 +687,14 @@ updateAll();
     }
   }
 
+  function updateLivePreview(){
+    const x = parseInt(panel.querySelector('#d_posX_range').value || '0', 10);
+    const y = parseInt(panel.querySelector('#d_posY_range').value || '0', 10);
+    document.querySelectorAll('.mdblist-rating-container').forEach(el => {
+      el.style.transform = `translate(${x}px, ${y}px)`;
+    });
+  }
+
   function render(){
     function mdblUpdateSwatches(){
       const map={red:'col_red',orange:'col_orange',yg:'col_yg',mg:'col_mg'};
@@ -749,35 +708,21 @@ updateAll();
       });
     }
 
-    // Keys: single clean box, input without inner border; shows key if present
     const kWrap=panel.querySelector('#mdbl-sec-keys');
     const injKey=getInjectorKey(); const stored=getStoredKeys().MDBLIST||'';
-    const value=injKey?injKey:(stored||'');
-    const readonly=injKey?'readonly':'';
     const hasKey=!!(injKey || stored);
     if(hasKey){
-      kWrap.innerHTML=`
-        <div id="mdbl-key-box" class="mdbl-source">
-          <div class="mdbl-key-stored">MDBList API key is stored</div>
-        </div>
-      `;
+      kWrap.innerHTML=`<div id="mdbl-key-box" class="mdbl-source"><div class="mdbl-key-stored">MDBList API key is stored</div></div>`;
     }else{
-      kWrap.innerHTML=`
-        <div id="mdbl-key-box" class="mdbl-source">
-          <input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value="">
-        </div>
-      `;
+      kWrap.innerHTML=`<div id="mdbl-key-box" class="mdbl-source"><input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value=""></div>`;
     }
-// Sources
     const sWrap=panel.querySelector('#mdbl-sec-sources');
     sWrap.innerHTML=`<div class="mdbl-subtle">Sources (drag to reorder)</div><div id="mdbl-sources"></div>`;
     const sList=sWrap.querySelector('#mdbl-sources');
     orderFromPriorities().forEach(item=>sList.appendChild(makeSourceRow(item)));
     enableDnD(sList);
 
-    // Display — checkbox rows align; dropdown rows get wide right column
     const dWrap=panel.querySelector('#mdbl-sec-display');
-    // --- MODIFIED: Removed Align, Added X/Y Sliders ---
     dWrap.innerHTML=`
       <div class="mdbl-subtle">Display</div>
       <div class="mdbl-row"><span>Color numbers</span><input type="checkbox" id="d_colorNumbers" ${DISPLAY.colorNumbers?'checked':''}></div>
@@ -791,7 +736,6 @@ updateAll();
           <input type="number" id="d_posX" value="${DISPLAY.posX||0}" class="mdbl-num" style="width:50px;">
         </div>
       </div>
-
       <div class="mdbl-row wide">
         <span>Position Y (px)</span>
         <div class="grid-right" style="flex:1; display:flex; justify-content:flex-end; align-items:center; gap:8px;">
@@ -800,16 +744,9 @@ updateAll();
         </div>
       </div>
 
-      <div class="mdbl-row wide">
-        <span>Ends at format</span>
-        <select id="d_endsFmt" class="mdbl-select">
-          <option value="24h" ${DISPLAY.endsAtFormat==='24h'?'selected':''}>24h</option>
-          <option value="12h" ${DISPLAY.endsAtFormat==='12h'?'selected':''}>12h</option>
-        </select>
-      </div>
+      <div class="mdbl-row"><span>Enable 24h format</span><input type="checkbox" id="d_ends24h" ${DISPLAY.endsAtFormat==='24h'?'checked':''}></div>
 
       <hr>
-
       <div class="mdbl-subtle">Color bands &amp; palette</div>
       <div class="mdbl-grid">
         <div class="grid-row">
@@ -824,7 +761,6 @@ updateAll();
             </select>
           </div>
         </div>
-
         <div class="grid-row">
           <label>Rating ≤ <input id="th_orange" type="number" min="0" max="100" value="${(DISPLAY.colorBands&&DISPLAY.colorBands.orangeMax)!=null?DISPLAY.colorBands.orangeMax:69}" class="mdbl-num"> %</label>
           <div class="grid-right">
@@ -837,7 +773,6 @@ updateAll();
             </select>
           </div>
         </div>
-
         <div class="grid-row">
           <label>Rating ≤ <input id="th_yg" type="number" min="0" max="100" value="${(DISPLAY.colorBands&&DISPLAY.colorBands.ygMax)!=null?DISPLAY.colorBands.ygMax:79}" class="mdbl-num"> %</label>
           <div class="grid-right">
@@ -850,7 +785,6 @@ updateAll();
             </select>
           </div>
         </div>
-
         <div class="grid-row">
           <label id="label_top_tier">Top tier (≥ ${(((DISPLAY.colorBands&&DISPLAY.colorBands.ygMax)!=null?DISPLAY.colorBands.ygMax:79)+1)}%)</label>
           <div class="grid-right">
@@ -866,17 +800,15 @@ updateAll();
       </div>
     `;
     
-    // --- MODIFIED: Sync Sliders and Number Inputs ---
     ['X','Y'].forEach(axis=>{
-        const rng = panel.querySelector(`#d_pos${axis}_range`);
-        const num = panel.querySelector(`#d_pos${axis}`);
-        if(rng && num){
-            rng.addEventListener('input', ()=>num.value=rng.value);
-            num.addEventListener('input', ()=>rng.value=num.value);
-        }
+      const rng = panel.querySelector(`#d_pos${axis}_range`);
+      const num = panel.querySelector(`#d_pos${axis}`);
+      if(rng && num){
+        rng.addEventListener('input', ()=>{ num.value=rng.value; updateLivePreview(); });
+        num.addEventListener('input', ()=>{ rng.value=num.value; updateLivePreview(); });
+      }
     });
 
-    
     const _ygInput = panel.querySelector('#th_yg');
     const _labelTop  = panel.querySelector('#label_top_tier');
     if(_ygInput && _labelTop){
@@ -887,49 +819,41 @@ updateAll();
       };
       _ygInput.addEventListener('input', upd);
       upd();
-    }['#col_red','#col_orange','#col_yg','#col_mg'].forEach(id=>{
+    }
+    ['#col_red','#col_orange','#col_yg','#col_mg'].forEach(id=>{
       const el = panel.querySelector(id);
       if(el) el.addEventListener('change', mdblUpdateSwatches);
     });
-    mdblUpdateSwatches();}
+    mdblUpdateSwatches();
+  }
 
   function show(){ panel.style.display='block'; }
   function hide(){ panel.style.display='none'; }
   window.MDBL_OPEN_SETTINGS=()=>{ render(); show(); };
   panel.addEventListener('click', e=>{ if(e.target.id==='mdbl-close') hide(); });
-  document.addEventListener('mousedown', e=>{ if(panel.style.display!=='block') return; if(!panel.contains(e.target)) hide(); });
 
-  // Reset / Save
   panel.querySelector('#mdbl-btn-reset').addEventListener('click', ()=>{
     Object.assign(ENABLE_SOURCES,deepClone(DEFAULTS.sources));
     Object.assign(DISPLAY,        deepClone(DEFAULTS.display));
     Object.assign(RATING_PRIORITY,deepClone(DEFAULTS.priorities));
     savePrefs({});
     render();
+    updateLivePreview();
     if(window.MDBL_API?.refresh) window.MDBL_API.refresh();
   });
 
   panel.querySelector('#mdbl-btn-save').addEventListener('click', ()=>{
     const prefs={sources:{},display:{},priorities:{}};
-
-    // priorities from drag order
     [...panel.querySelectorAll('#mdbl-sources .mdbl-source')].forEach((el,i)=>{ prefs.priorities[el.dataset.k]=i+1; });
+    panel.querySelectorAll('#mdbl-sources input[type="checkbox"][data-toggle]').forEach(cb=>{ prefs.sources[cb.dataset.toggle]=cb.checked; });
 
-    // source toggles
-    panel.querySelectorAll('#mdbl-sources input[type="checkbox"][data-toggle]').forEach(cb=>{
-      prefs.sources[cb.dataset.toggle]=cb.checked;
-    });
-
-    // display toggles
     prefs.display.colorNumbers      = panel.querySelector('#d_colorNumbers').checked;
     prefs.display.colorIcons        = panel.querySelector('#d_colorIcons').checked;
     prefs.display.showPercentSymbol = panel.querySelector('#d_showPercent').checked;
     
-    // --- MODIFIED: Save X/Y ---
     prefs.display.posX = parseInt(panel.querySelector('#d_posX').value||'0', 10);
     prefs.display.posY = parseInt(panel.querySelector('#d_posY').value||'0', 10);
 
-    // color bands
     let _r = parseInt(panel.querySelector('#th_red')?.value||'50',10);
     let _o = parseInt(panel.querySelector('#th_orange')?.value||'69',10);
     let _y = parseInt(panel.querySelector('#th_yg')?.value||'79',10);
@@ -939,7 +863,6 @@ updateAll();
     _y=Math.max(0,Math.min(100,_y));
     if(!(_r<_o && _o<_y)){ _o=Math.max(_r+1,_o); _y=Math.max(_o+1,_y); _y=Math.min(100,_y); }
     prefs.display.colorBands = { redMax:_r, orangeMax:_o, ygMax:_y };
-    // palette choice
     prefs.display.colorChoice = {
       red: +(panel.querySelector('#col_red')?.value||0),
       orange: +(panel.querySelector('#col_orange')?.value||0),
@@ -947,271 +870,119 @@ updateAll();
       mg: +(panel.querySelector('#col_mg')?.value||0)
     };
 
-    // align removed from save
-    prefs.display.endsAtFormat      = panel.querySelector('#d_endsFmt').value;
+    prefs.display.endsAtFormat = panel.querySelector('#d_ends24h').checked ? '24h' : '12h';
 
     savePrefs(prefs); applyPrefs(prefs);
-
-    // keys (only if no injector key)
     const injKey=getInjectorKey(); const keyInput=panel.querySelector('#mdbl-key-mdb');
     if(keyInput && !injKey) setStoredKey((keyInput.value||'').trim());
-
     if(window.MDBL_API?.refresh) window.MDBL_API.refresh();
     location.reload();
   });
 } )();
 
-
-
-/* === MDBList Ratings — Uniform UI Post-Patch v8 (safe, append-only) === */
+/* === Patches === */
 (function(){
-  // Unique namespace to avoid collisions
-  const NS = "MDBL_UNIUI_V8";
-
-  function $q(root, sel){ try{ return (root||document).querySelector(sel); }catch(e){ return null; } }
-  function $qa(root, sel){ try{ return Array.from((root||document).querySelectorAll(sel)); }catch(e){ return []; } }
-
-  function styleCtl(el, heightPx, forceWidthPx){
-    if(!el) return;
+  const NS="MDBL_UNIUI_V8";
+  function $q(r,s){try{return(r||document).querySelector(s);}catch{return null;}}
+  function $qa(r,s){try{return Array.from((r||document).querySelectorAll(s));}catch{return[];}}
+  function styleCtl(el,h,w){
+    if(!el)return;
     try{
-      // Make number inputs match select styling
-      if(el.tagName === 'INPUT' && el.type === 'number'){
-        el.classList.add('mdbl-select');
-        el.style.setProperty('width', (forceWidthPx||56) + 'px', 'important');
-        el.style.setProperty('text-align','right','important');
-        el.style.setProperty('display','inline-block','important');
+      if(el.tagName==='INPUT'&&el.type==='number'){
+        el.classList.add('mdbl-select'); el.style.setProperty('width',(w||56)+'px','important');
+        el.style.setProperty('text-align','right','important'); el.style.setProperty('display','inline-block','important');
       }
-      // Controls: use resolved height
-      if(heightPx){
-        el.style.setProperty('height', heightPx + 'px', 'important');
-        el.style.setProperty('min-height', heightPx + 'px', 'important');
-        el.style.setProperty('padding','0 10px','important');
-        el.style.setProperty('border-radius','10px','important');
-        el.style.setProperty('border','1px solid rgba(255,255,255,0.15)','important');
-        el.style.setProperty('background','#121317','important');
-        el.style.setProperty('color','#eaeaea','important');
-        el.style.setProperty('box-sizing','border-box','important');
+      if(h){
+        el.style.setProperty('height',h+'px','important'); el.style.setProperty('min-height',h+'px','important');
+        el.style.setProperty('padding','0 10px','important'); el.style.setProperty('border-radius','10px','important');
+        el.style.setProperty('border','1px solid rgba(255,255,255,0.15)','important'); el.style.setProperty('background','#121317','important');
+        el.style.setProperty('color','#eaeaea','important'); el.style.setProperty('box-sizing','border-box','important');
       }
     }catch{}
   }
-
-  function matchRowBox(row, refRow){
-    if(!row || !refRow) return;
+  function matchRowBox(row,ref){
+    if(!row||!ref)return;
     try{
-      const cs = getComputedStyle(refRow);
-      // Borrow min-height + padding + border-radius from reference row
-      row.style.setProperty('min-height', cs.minHeight || '48px', 'important');
-      // Convert padding shorthand to numeric if needed; fallback to 10/12
-      row.style.setProperty('padding-top', cs.paddingTop || '10px', 'important');
-      row.style.setProperty('padding-bottom', cs.paddingBottom || '10px', 'important');
-      row.style.setProperty('padding-left', cs.paddingLeft || '12px', 'important');
-      row.style.setProperty('padding-right', cs.paddingRight || '12px', 'important');
-      row.style.setProperty('border-radius', cs.borderRadius || '12px', 'important');
-      row.style.setProperty('border', cs.border || '1px solid rgba(255,255,255,0.06)', 'important');
-      row.style.setProperty('background', cs.backgroundColor || 'transparent', 'important');
+      const cs=getComputedStyle(ref);
+      row.style.setProperty('min-height',cs.minHeight||'48px','important');
+      row.style.setProperty('padding-top',cs.paddingTop||'10px','important'); row.style.setProperty('padding-bottom',cs.paddingBottom||'10px','important');
+      row.style.setProperty('padding-left',cs.paddingLeft||'12px','important'); row.style.setProperty('padding-right',cs.paddingRight||'12px','important');
+      row.style.setProperty('border-radius',cs.borderRadius||'12px','important'); row.style.setProperty('border',cs.border||'1px solid rgba(255,255,255,0.06)','important');
+      row.style.setProperty('background',cs.backgroundColor||'transparent','important');
     }catch{}
   }
-
-  function firstRefRow(panel){
-    // Use the "Show %" row as a reference (same section). If missing, use any .mdbl-row in Display section.
-    try{
-      const ref = $qa(panel, '.mdbl-row').find(r => r.textContent && /Show\s*%/i.test(r.textContent));
-      return ref || $q(panel, '.mdbl-row');
-    }catch{ return null; }
-  }
-
   function resolveControlHeight(panel){
-    // Use the red palette select as a height reference for controls
     try{
-      const sel = $q(panel, '#col_red') || $q(panel, 'select.mdbl-select');
-      if(!sel) return 36;
-      const h = parseFloat(getComputedStyle(sel).height);
-      return isFinite(h) && h>0 ? Math.round(h) : 36;
-    }catch{ return 36; }
+      const sel=$q(panel,'#col_red')||$q(panel,'select.mdbl-select');
+      if(!sel)return 36; const h=parseFloat(getComputedStyle(sel).height);
+      return isFinite(h)&&h>0?Math.round(h):36;
+    }catch{return 36;}
   }
-
   function patchPanel(panel){
-    if(!panel || panel[NS+'done']) return;
-    panel[NS+'done'] = true;
-
-    // Ensure labels for color-bands don't wrap
-    $qa(panel, '.mdbl-grid label').forEach(l=>{
-      try{ l.style.setProperty('white-space','nowrap','important'); }catch{}
-    });
-
-    const ctlHeight = resolveControlHeight(panel);
-    const refRow = firstRefRow(panel);
-
-    // Style the three percentage inputs to look like selects
-    styleCtl($q(panel,'#th_red'),    ctlHeight, 56);
-    styleCtl($q(panel,'#th_orange'), ctlHeight, 56);
-    styleCtl($q(panel,'#th_yg'),     ctlHeight, 56);
-
-    // Align + Ends-at selects (controls themselves get height; parent rows match box)
-    const alignSel = $q(panel,'#d_align');
-    const endsSel  = $q(panel,'#d_endsFmt');
-    styleCtl(alignSel, ctlHeight);
-    styleCtl(endsSel,  ctlHeight);
-    matchRowBox(alignSel && alignSel.closest('.mdbl-row'), refRow);
-    matchRowBox(endsSel  && endsSel.closest('.mdbl-row'),  refRow);
+    if(!panel||panel[NS+'done'])return; panel[NS+'done']=true;
+    $qa(panel,'.mdbl-grid label').forEach(l=>{try{l.style.setProperty('white-space','nowrap','important');}catch{}});
+    const h=resolveControlHeight(panel); const ref=$q(panel,'.mdbl-row');
+    styleCtl($q(panel,'#th_red'),h,56); styleCtl($q(panel,'#th_orange'),h,56); styleCtl($q(panel,'#th_yg'),h,56);
   }
-
-  function tryPatch(root){
-    const panel = $q(root||document, '#mdbl-panel');
-    if(panel) patchPanel(panel);
-  }
-
-  // Observe new panels (open/close) and reapply styles
+  function tryPatch(root){ const p=$q(root||document,'#mdbl-panel'); if(p)patchPanel(p); }
   try{
-    const obs = new MutationObserver((ms)=>{
-      for(const m of ms){
-        for(const n of m.addedNodes){
-          if(n && n.nodeType===1){
-            if(n.id==='mdbl-panel' || (n.querySelector && n.querySelector('#mdbl-panel'))){
-              // Defer one tick for innerHTML
-              setTimeout(()=>tryPatch(n),0);
-            }
-          }
-        }
-      }
-    });
+    const obs=new MutationObserver(ms=>{ for(const m of ms) for(const n of m.addedNodes) if(n.nodeType===1 && (n.id==='mdbl-panel'||n.querySelector('#mdbl-panel'))) setTimeout(()=>tryPatch(n),0); });
     obs.observe(document.documentElement,{childList:true,subtree:true});
   }catch{}
-
-  // If panel already present, patch now
   tryPatch(document);
 })();
 
-
-
-/* === MDBList Ratings — Dark Number Inputs Patch (v9) === */
 (function(){
-  const STYLE_ID = 'mdbl-num-input-dark';
+  const STYLE_ID='mdbl-num-input-dark';
   function inject(){
-    if(document.getElementById(STYLE_ID)) return;
-    const css = `
-      /* Force dark, rounded, select-like styling on the three % inputs */
-      #mdbl-panel #th_red,
-      #mdbl-panel #th_orange,
-      #mdbl-panel #th_yg{
-        background:#121317 !important;
-        color:#eaeaea !important;
-        border:1px solid rgba(255,255,255,0.15) !important;
-        border-radius:10px !important;
-        box-sizing:border-box !important;
-        -webkit-appearance:none !important;
-        appearance:textfield !important;
-      }
-      /* Hide Chrome/WebKit spinners */
-      #mdbl-panel #th_red::-webkit-inner-spin-button,
-      #mdbl-panel #th_red::-webkit-outer-spin-button,
-      #mdbl-panel #th_orange::-webkit-inner-spin-button,
-      #mdbl-panel #th_orange::-webkit-outer-spin-button,
-      #mdbl-panel #th_yg::-webkit-inner-spin-button,
-      #mdbl-panel #th_yg::-webkit-outer-spin-button{
-        -webkit-appearance: none; margin: 0;
-      }
-      /* Firefox */
-      #mdbl-panel #th_red,
-      #mdbl-panel #th_orange,
-      #mdbl-panel #th_yg{
-        -moz-appearance:textfield !important;
-      }
-    `;
-    const st = document.createElement('style'); st.id = STYLE_ID; st.textContent = css;
-    (document.head||document.documentElement).appendChild(st);
+    if(document.getElementById(STYLE_ID))return;
+    const css=`#mdbl-panel #th_red,#mdbl-panel #th_orange,#mdbl-panel #th_yg{background:#121317!important;color:#eaeaea!important;border:1px solid rgba(255,255,255,0.15)!important;border-radius:10px!important;box-sizing:border-box!important;-webkit-appearance:none!important;appearance:textfield!important}#mdbl-panel #th_red::-webkit-inner-spin-button,#mdbl-panel #th_red::-webkit-outer-spin-button,#mdbl-panel #th_orange::-webkit-inner-spin-button,#mdbl-panel #th_orange::-webkit-outer-spin-button,#mdbl-panel #th_yg::-webkit-inner-spin-button,#mdbl-panel #th_yg::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}#mdbl-panel #th_red,#mdbl-panel #th_orange,#mdbl-panel #th_yg{-moz-appearance:textfield!important}`;
+    const st=document.createElement('style'); st.id=STYLE_ID; st.textContent=css; (document.head||document.documentElement).appendChild(st);
   }
-  // Also set inline background + color to be absolutely sure
   function inlineNow(){
     ['th_red','th_orange','th_yg'].forEach(id=>{
-      const el = document.getElementById(id);
-      if(!el) return;
-      el.style.setProperty('background','#121317','important');
-      el.style.setProperty('color','#eaeaea','important');
-      el.style.setProperty('border','1px solid rgba(255,255,255,0.15)','important');
-      el.style.setProperty('border-radius','10px','important');
+      const el=document.getElementById(id); if(!el)return;
+      el.style.setProperty('background','#121317','important'); el.style.setProperty('color','#eaeaea','important');
+      el.style.setProperty('border','1px solid rgba(255,255,255,0.15)','important'); el.style.setProperty('border-radius','10px','important');
       el.style.setProperty('box-sizing','border-box','important');
     });
   }
-  // Run now and whenever panel re-renders
-  try{ inject(); inlineNow(); }catch{}
-  try{
-    const obs = new MutationObserver(()=>{ inject(); inlineNow(); });
-    obs.observe(document.documentElement,{childList:true,subtree:true});
-  }catch{}
+  try{inject();inlineNow();}catch{}
+  try{const obs=new MutationObserver(()=>{inject();inlineNow();});obs.observe(document.documentElement,{childList:true,subtree:true});}catch{}
 })();
 
-
-
-/* === MDBList Ratings — % inputs: slightly bigger + centered (v10) === */
 (function(){
-  const STYLE_ID = 'mdbl-num-input-size-center';
+  const STYLE_ID='mdbl-num-input-size-center';
   function inject(){
-    if(document.getElementById(STYLE_ID)) return;
-    const css = `
-      #mdbl-panel #th_red,
-      #mdbl-panel #th_orange,
-      #mdbl-panel #th_yg{
-        width:64px !important;
-        height:36px !important;
-        min-height:36px !important;
-        text-align:center !important;
-        line-height:36px !important; /* best-effort vertical centering */
-        padding:0 10px !important;
-      }
-    `;
-    const st = document.createElement('style'); st.id = STYLE_ID; st.textContent = css;
-    (document.head||document.documentElement).appendChild(st);
+    if(document.getElementById(STYLE_ID))return;
+    const css=`#mdbl-panel #th_red,#mdbl-panel #th_orange,#mdbl-panel #th_yg{width:64px!important;height:36px!important;min-height:36px!important;text-align:center!important;line-height:36px!important;padding:0 10px!important}`;
+    const st=document.createElement('style'); st.id=STYLE_ID; st.textContent=css; (document.head||document.documentElement).appendChild(st);
   }
   function inlineNow(){
     ['th_red','th_orange','th_yg'].forEach(id=>{
-      const el = document.getElementById(id);
-      if(!el) return;
-      el.style.setProperty('width','64px','important');
-      el.style.setProperty('height','36px','important');
-      el.style.setProperty('min-height','36px','important');
-      el.style.setProperty('text-align','center','important');
-      el.style.setProperty('line-height','36px','important');
-      el.style.setProperty('padding','0 10px','important');
+      const el=document.getElementById(id); if(!el)return;
+      el.style.setProperty('width','64px','important'); el.style.setProperty('height','36px','important');
+      el.style.setProperty('min-height','36px','important'); el.style.setProperty('text-align','center','important');
+      el.style.setProperty('line-height','36px','important'); el.style.setProperty('padding','0 10px','important');
     });
   }
-  try{ inject(); inlineNow(); }catch{}
-  try{
-    const obs = new MutationObserver(()=>{ inject(); inlineNow(); });
-    obs.observe(document.documentElement,{childList:true,subtree:true});
-  }catch{}
+  try{inject();inlineNow();}catch{}
+  try{const obs=new MutationObserver(()=>{inject();inlineNow();});obs.observe(document.documentElement,{childList:true,subtree:true});}catch{}
 })();
 
-
-
-/* === MDBList Ratings — % inputs: match select height + narrower width (v11) === */
 (function(){
-  const APPLY = () => {
-    const panel = document.querySelector('#mdbl-panel'); if(!panel) return;
-    const refSel = panel.querySelector('#col_red') || panel.querySelector('select.mdbl-select');
-    let h = 32;
-    try{
-      const cs = refSel ? getComputedStyle(refSel) : null;
-      const hh = cs ? parseFloat(cs.height) : NaN;
-      if (isFinite(hh) && hh > 0) h = Math.round(hh);
-    }catch{}
+  const APPLY=()=>{
+    const panel=document.querySelector('#mdbl-panel'); if(!panel)return;
+    const refSel=panel.querySelector('#col_red')||panel.querySelector('select.mdbl-select');
+    let h=32; try{const hh=parseFloat(getComputedStyle(refSel).height); if(isFinite(hh)&&hh>0)h=Math.round(hh);}catch{}
     ['th_red','th_orange','th_yg'].forEach(id=>{
-      const el = panel.querySelector('#'+id);
-      if(!el) return;
-      // width: slightly narrower; keep one-line layout
-      el.style.setProperty('width','56px','important');
-      // height: exactly match the reference select
-      el.style.setProperty('height',h+'px','important');
-      el.style.setProperty('min-height',h+'px','important');
-      // keep the dark style and center the numbers
-      el.style.setProperty('text-align','center','important');
-      // avoid forcing a fixed line-height that could misalign; let the browser center within the input
+      const el=panel.querySelector('#'+id); if(!el)return;
+      el.style.setProperty('width','56px','important'); el.style.setProperty('height',h+'px','important');
+      el.style.setProperty('min-height',h+'px','important'); el.style.setProperty('text-align','center','important');
       el.style.removeProperty('line-height');
     });
   };
-  try{ APPLY(); }catch{}
-  try{
-    const obs = new MutationObserver(APPLY);
-    obs.observe(document.documentElement,{childList:true,subtree:true});
-  }catch{}
+  try{APPLY();}catch{}
+  try{const obs=new MutationObserver(APPLY);obs.observe(document.documentElement,{childList:true,subtree:true});}catch{}
 })();
+```
