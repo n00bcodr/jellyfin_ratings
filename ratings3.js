@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v9.5.0 — Nav Fix & Compact Header)
+// @name         Jellyfin Ratings (v9.6.0 — Stateless Scan & Layout)
 // @namespace    https://mdblist.com
-// @version      9.5.0
-// @description  Fixes loading on navigation by checking ID match (recycling fix). Compact Header "Settings".
+// @version      9.6.0
+// @description  Fixes navigation loading by removing 'processed' flags and checking live DOM state. Compact Header.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v9.5.0 loading...');
+console.log('[Jellyfin Ratings] v9.6.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -162,6 +162,7 @@ function updateGlobalStyles() {
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; }
         
+        /* Ends At & Settings Icon */
         #customEndsAt { 
             font-size: inherit; opacity: 0.7; cursor: pointer; 
             margin-left: 10px; display: inline; vertical-align: baseline;
@@ -266,7 +267,6 @@ function parseRuntimeToMinutes(text) {
 }
 
 function updateEndsAt() {
-    // Cleanup native elements
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
         if (el.id === 'customEndsAt' || el.id === 'mdbl-settings-trigger' || el.closest('.mdblist-rating-container')) return;
         const t = (el.textContent || '').toLowerCase();
@@ -430,15 +430,14 @@ function fetchRatings(container, tmdbId, type) {
 }
 
 function scan() {
-    // --- NAVIGATION GUARD (RECYCLING FIX) ---
+    // --- NAVIGATION GUARD (Aggressive Mode) ---
+    // Reset everything if URL path changed since last check
     if (window.location.pathname !== lastPath) {
         lastPath = window.location.pathname;
         currentImdbId = null; 
-        // Force cleanup to allow re-injection on recycled pages
         document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
     }
-    // ----------------------------------------
-
+    
     updateEndsAt();
 
     const imdbLink = document.querySelector('a[href*="imdb.com/title/"]');
@@ -452,9 +451,8 @@ function scan() {
         }
     }
 
+    // Use Stateless Check: Only inject if this specific ID is missing from wrapper
     [...document.querySelectorAll('a[href*="themoviedb.org/"]')].forEach(a => {
-        // Match link but do NOT rely on a processed flag on the button itself
-        // because the button might be recycled with a new link!
         const m = a.href.match(/\/(movie|tv)\/(\d+)/);
         if (m) {
             const type = m[1] === 'tv' ? 'show' : 'movie';
@@ -462,11 +460,12 @@ function scan() {
             
             const wrapper = document.querySelector('.itemMiscInfo');
             if (wrapper) {
-                // Check if a container for THIS ID already exists
-                const existing = wrapper.querySelector(`.mdblist-rating-container[data-tmdb-id="${id}"]`);
-                if (!existing) {
-                    // Remove any OLD container (wrong ID)
-                    wrapper.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
+                // "Stateless" check: Does the wrapper already have a container for THIS id?
+                // If not, or if it has a container for a WRONG id (recycled), fix it.
+                const existing = wrapper.querySelector('.mdblist-rating-container');
+                
+                if (!existing || existing.dataset.tmdbId !== id) {
+                    if(existing) existing.remove(); // Remove stale recycled container
 
                     const div = document.createElement('div');
                     div.className = 'mdblist-rating-container';
@@ -508,7 +507,7 @@ function initMenu() {
     #mdbl-panel { position:fixed; right:16px; bottom:70px; width:480px; max-height:90vh; overflow:auto; border-radius:14px;
         border:1px solid rgba(255,255,255,0.15); background:rgba(22,22,26,0.94); backdrop-filter:blur(8px);
         color:#eaeaea; z-index:100000; box-shadow:0 20px 40px rgba(0,0,0,0.45); display:none; font-family: sans-serif; }
-    #mdbl-panel header { position:sticky; top:0; background:rgba(22,22,26,0.98); padding:6px 12px; border-bottom:1px solid rgba(255,255,255,0.08);
+    #mdbl-panel header { position:sticky; top:0; background:rgba(22,22,26,0.98); padding:4px 16px; border-bottom:1px solid rgba(255,255,255,0.08);
         display:flex; align-items:center; gap:8px; cursor:move; z-index:999; backdrop-filter:blur(8px); font-weight: bold; justify-content: space-between; }
     #mdbl-close { 
         width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; 
@@ -644,7 +643,7 @@ function renderMenuContent(panel) {
     <div class="mdbl-section" id="mdbl-sec-keys">
        ${(!INJ_KEYS.MDBLIST && !JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST) ? `<div id="mdbl-key-box" class="mdbl-source"><input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value="${(JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST)||''}"></div>` : ''}
     </div>
-    <div class="mdbl-section">
+    <div class="mdbl-section" style="padding-top:24px">
        <div class="mdbl-subtle">Sources (drag to reorder)</div>
        <div id="mdbl-sources"></div>
        <hr style="border:0;border-top:1px solid rgba(255,255,255,0.08);margin:12px 0">
@@ -687,7 +686,7 @@ function renderMenuContent(panel) {
             </div>
         </div>
     </div>
-    <div class="mdbl-actions" style="padding-bottom:16px">
+    <div class="mdbl-actions" style="padding-bottom:16px; padding-top:24px">
       <button id="mdbl-btn-reset">Reset</button>
       <button id="mdbl-btn-save" class="primary">Save & Apply</button>
       <div class="mdbl-grow"></div>
