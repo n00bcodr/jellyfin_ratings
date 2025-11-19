@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v9.4.0 — Nav Guard & Style Polish)
+// @name         Jellyfin Ratings (v9.5.0 — Nav Fix & Compact Header)
 // @namespace    https://mdblist.com
-// @version      9.4.0
-// @description  Fixes intermittent loading on navigation. Square close button. Reduced header height. Theme Sync active.
+// @version      9.5.0
+// @description  Fixes loading on navigation by checking ID match (recycling fix). Compact Header "Settings".
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v9.4.0 loading...');
+console.log('[Jellyfin Ratings] v9.5.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -88,14 +88,13 @@ const LABEL = {
 
 let CFG = loadConfig();
 let currentImdbId = null;
-let lastPath = window.location.pathname; // Track path for nav detection
+let lastPath = window.location.pathname;
 
 function loadConfig() {
     try {
         const raw = localStorage.getItem(`${NS}prefs`);
         if (!raw) return JSON.parse(JSON.stringify(DEFAULTS));
         const p = JSON.parse(raw);
-        // Sanity checks
         if (p.display && (isNaN(parseInt(p.display.posX)) || isNaN(parseInt(p.display.posY)))) {
             p.display.posX = 0; p.display.posY = 0;
         }
@@ -140,7 +139,6 @@ function updateGlobalStyles() {
     document.documentElement.style.setProperty('--mdbl-y', `${CFG.display.posY}px`);
 
     let rules = `
-        /* Container */
         .mdblist-rating-container {
             display: flex; flex-wrap: wrap; align-items: center;
             justify-content: flex-end; 
@@ -149,7 +147,6 @@ function updateGlobalStyles() {
             transform: translate(var(--mdbl-x), var(--mdbl-y));
             z-index: 99999; position: relative; pointer-events: auto; flex-shrink: 0;
         }
-        /* Items */
         .mdbl-rating-item {
             display: inline-flex; align-items: center; margin: 0 6px; gap: 6px;
             text-decoration: none;
@@ -163,8 +160,6 @@ function updateGlobalStyles() {
         }
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; transition: filter 0.2s; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
-        
-        /* Visibility & Helpers */
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; }
         
         #customEndsAt { 
@@ -240,7 +235,6 @@ function fixUrl(url, domain) {
 document.addEventListener('click', (e) => {
     if (e.target.id === 'customEndsAt' || e.target.closest('#mdbl-settings-trigger')) {
         e.preventDefault(); e.stopPropagation();
-        
         if(window.MDBL_OPEN_SETTINGS) {
              window.MDBL_OPEN_SETTINGS();
         } else {
@@ -272,6 +266,7 @@ function parseRuntimeToMinutes(text) {
 }
 
 function updateEndsAt() {
+    // Cleanup native elements
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
         if (el.id === 'customEndsAt' || el.id === 'mdbl-settings-trigger' || el.closest('.mdblist-rating-container')) return;
         const t = (el.textContent || '').toLowerCase();
@@ -435,16 +430,15 @@ function fetchRatings(container, tmdbId, type) {
 }
 
 function scan() {
-    // --- NAVIGATION GUARD ---
-    // Detects if URL changed and forces a cleanup to handle SPA navigation properly
+    // --- NAVIGATION GUARD (RECYCLING FIX) ---
     if (window.location.pathname !== lastPath) {
         lastPath = window.location.pathname;
         currentImdbId = null; 
+        // Force cleanup to allow re-injection on recycled pages
         document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
-        // FORCE RESET PROCESSED FLAGS
-        document.querySelectorAll('a[data-mdbl-proc]').forEach(el => delete el.dataset.mdblProc);
     }
-    
+    // ----------------------------------------
+
     updateEndsAt();
 
     const imdbLink = document.querySelector('a[href*="imdb.com/title/"]');
@@ -458,26 +452,29 @@ function scan() {
         }
     }
 
-    // Use loose selector again (v8.1.0 logic) for maximum compatibility
     [...document.querySelectorAll('a[href*="themoviedb.org/"]')].forEach(a => {
-        if (a.dataset.mdblProc === '1') return;
-        
+        // Match link but do NOT rely on a processed flag on the button itself
+        // because the button might be recycled with a new link!
         const m = a.href.match(/\/(movie|tv)\/(\d+)/);
         if (m) {
             const type = m[1] === 'tv' ? 'show' : 'movie';
             const id = m[2];
             
             const wrapper = document.querySelector('.itemMiscInfo');
-            if (wrapper && !wrapper.querySelector('.mdblist-rating-container')) {
-                // Mark processed only on success
-                a.dataset.mdblProc = '1';
+            if (wrapper) {
+                // Check if a container for THIS ID already exists
+                const existing = wrapper.querySelector(`.mdblist-rating-container[data-tmdb-id="${id}"]`);
+                if (!existing) {
+                    // Remove any OLD container (wrong ID)
+                    wrapper.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
 
-                const div = document.createElement('div');
-                div.className = 'mdblist-rating-container';
-                div.dataset.type = type;
-                div.dataset.tmdbId = id;
-                wrapper.appendChild(div);
-                fetchRatings(div, id, type);
+                    const div = document.createElement('div');
+                    div.className = 'mdblist-rating-container';
+                    div.dataset.type = type;
+                    div.dataset.tmdbId = id;
+                    wrapper.appendChild(div);
+                    fetchRatings(div, id, type);
+                }
             }
         }
     });
@@ -511,7 +508,7 @@ function initMenu() {
     #mdbl-panel { position:fixed; right:16px; bottom:70px; width:480px; max-height:90vh; overflow:auto; border-radius:14px;
         border:1px solid rgba(255,255,255,0.15); background:rgba(22,22,26,0.94); backdrop-filter:blur(8px);
         color:#eaeaea; z-index:100000; box-shadow:0 20px 40px rgba(0,0,0,0.45); display:none; font-family: sans-serif; }
-    #mdbl-panel header { position:sticky; top:0; background:rgba(22,22,26,0.98); padding:8px 16px; border-bottom:1px solid rgba(255,255,255,0.08);
+    #mdbl-panel header { position:sticky; top:0; background:rgba(22,22,26,0.98); padding:6px 12px; border-bottom:1px solid rgba(255,255,255,0.08);
         display:flex; align-items:center; gap:8px; cursor:move; z-index:999; backdrop-filter:blur(8px); font-weight: bold; justify-content: space-between; }
     #mdbl-close { 
         width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; 
@@ -641,7 +638,7 @@ function renderMenuContent(panel) {
     
     let html = `
     <header>
-      <h3>Ratings Settings</h3>
+      <h3>Settings</h3>
       <button id="mdbl-close">✕</button>
     </header>
     <div class="mdbl-section" id="mdbl-sec-keys">
