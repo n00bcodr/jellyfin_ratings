@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.5.4 — Ends-At Spacing Fix)
+// @name         Jellyfin Ratings (v6.6.0 — Mobile, Clickable Ends-At & Names)
 // @namespace    https://mdblist.com
-// @version      6.5.4
-// @description  Unified ratings. Fixes spacing to the right of 'Ends at'. Compact Mode optimized.
+// @version      6.6.0
+// @description  Unified ratings. Mobile menu support. Clickable 'Ends at'. Restored original color names.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v6.5.4 loading...');
+console.log('[Jellyfin Ratings] v6.6.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -54,11 +54,20 @@ const SCALE_MULTIPLIER = {
     metacritic_critic: 1, metacritic_user: 10, myanimelist: 10, anilist: 1,
     rotten_tomatoes_critic: 1, rotten_tomatoes_audience: 1
 };
+
+// --- Original Color Palettes & Names ---
 const COLOR_SWATCHES = {
     red:    ['#e53935', '#f44336', '#d32f2f', '#c62828'],
     orange: ['#fb8c00', '#f39c12', '#ffa726', '#ef6c00'],
     yg:     ['#9ccc65', '#c0ca33', '#aeea00', '#cddc39'],
     mg:     ['#43a047', '#66bb6a', '#388e3c', '#81c784']
+};
+
+const PALETTE_NAMES = {
+    red:    ['Alert Red (#e53935)', 'Tomato (#f44336)', 'Crimson (#d32f2f)', 'Deep Red (#c62828)'],
+    orange: ['Amber (#fb8c00)', 'Signal Orange (#f39c12)', 'Apricot (#ffa726)', 'Burnt Orange (#ef6c00)'],
+    yg:     ['Lime Leaf (#9ccc65)', 'Citrus (#c0ca33)', 'Chartreuse (#aeea00)', 'Soft Lime (#cddc39)'],
+    mg:     ['Emerald (#43a047)', 'Leaf Green (#66bb6a)', 'Forest (#388e3c)', 'Mint (#81c784)']
 };
 
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000;
@@ -134,10 +143,9 @@ function getRatingColor(bands, choice, r) {
     style.id = 'mdblist-styles';
     style.textContent = `
     .mdblist-rating-container { pointer-events: auto; }
-    /* Prevent clipping */
     .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; }
-    /* Fix for overlapping Ends At */
-    #customEndsAt { font-size: inherit; opacity: 0.7; }
+    #customEndsAt { font-size: inherit; opacity: 0.7; cursor: pointer; }
+    #customEndsAt:hover { opacity: 1.0; text-decoration: underline; }
   `;
     document.head.appendChild(style);
 })();
@@ -202,10 +210,17 @@ function getRatingColor(bands, choice, r) {
         if (!span) {
             span = document.createElement('span');
             span.id = 'customEndsAt';
-            // FIXED: Reset left margin to 10px, added RIGHT margin 24px to push the badge away
+            // Click to open settings
+            span.title = 'Click to open Jellyfin Ratings Settings';
+            span.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if(window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
+            });
+
             Object.assign(span.style, {
                 marginLeft: '10px',
-                marginRight: '24px', // <-- Pushes the next element (Rating Badge) to the right
+                marginRight: '24px',
                 display: 'inline', 
                 verticalAlign: 'baseline'
             });
@@ -593,10 +608,9 @@ function getRatingColor(bands, choice, r) {
     #mdbl-panel .mdbl-actions .mdbl-grow { flex:1; }
     #mdbl-panel .mdbl-actions .mdbl-compact { display:inline-flex; align-items:center; gap:6px; opacity:0.95; }
     
-    /* FIXED: Compact Mode Width increased to 460 to fit slider + text */
+    /* Compact Mode (Desktop) */
     #mdbl-panel[data-compact="1"] { --mdbl-right-col:44px; --mdbl-right-col-wide:220px; width:460px; }
     #mdbl-panel[data-compact="1"] header { padding:6px 12px; }
-    /* Tighter vertical spacing to prevent scroll */
     #mdbl-panel[data-compact="1"] .mdbl-section { padding:2px 12px; gap:2px; }
     #mdbl-panel[data-compact="1"] .mdbl-row, #mdbl-panel[data-compact="1"] .mdbl-source { gap:5px; padding:2px 6px; border-radius:6px; min-height: 32px; }
     #mdbl-panel[data-compact="1"] .mdbl-actions { padding:6px 10px; }
@@ -604,6 +618,26 @@ function getRatingColor(bands, choice, r) {
     #mdbl-panel[data-compact="1"] select, #mdbl-panel[data-compact="1"] input.mdbl-pos-input { height: 28px; font-size: 12px; }
     #mdbl-panel[data-compact="1"] .mdbl-select { width: 140px; }
     #mdbl-panel[data-compact="1"] hr { margin: 4px 0; }
+
+    /* === MOBILE RESPONSIVENESS === */
+    @media (max-width: 600px) {
+        #mdbl-panel, #mdbl-panel[data-compact="1"] {
+            width: 96% !important;
+            left: 2% !important;
+            right: 2% !important;
+            bottom: 10px !important;
+            top: auto !important;
+            transform: none !important; /* Disable JS drag positioning */
+            max-height: 80vh;
+            --mdbl-right-col: 40px;
+            --mdbl-right-col-wide: 140px;
+        }
+        /* Disable dragging on mobile */
+        #mdbl-panel header { cursor: default; }
+        /* Make rows slightly smaller on mobile */
+        #mdbl-panel .mdbl-row, #mdbl-panel .mdbl-source { min-height: 42px; padding: 4px 8px; }
+        #mdbl-panel .mdbl-select { width: 140px; }
+    }
     `;
 
     if (!document.getElementById('mdbl-settings-css')) {
@@ -655,10 +689,12 @@ function getRatingColor(bands, choice, r) {
     })();
 
     document.addEventListener('mousedown', e => { if (panel.style.display !== 'block') return; if (!panel.contains(e.target)) hide(); });
-    // Drag Logic
+    // Drag Logic (with mobile guard)
     (function makePanelDraggable() {
         const header = panel.querySelector('#mdbl-drag-handle'); let drag = false, sx = 0, sy = 0, sl = 0, st = 0;
         header.addEventListener('mousedown', e => {
+            // Disable drag on small screens
+            if (window.innerWidth <= 600) return;
             if (e.target.id === 'mdbl-close') return;
             drag = true; const rect = panel.getBoundingClientRect();
             panel.style.left = rect.left + 'px'; panel.style.top = rect.top + 'px'; panel.style.right = 'auto'; panel.style.bottom = 'auto';
@@ -710,18 +746,14 @@ function getRatingColor(bands, choice, r) {
 
     // --- Helper for Colors Grid ---
     function createColorBandRow(idPrefix, labelPrefix, defaultVal, colorKey) {
-        const options = [
-            { val: 0, label: 'Option 1 (Red/Amber/Lime/Emerald)' },
-            { val: 1, label: 'Option 2 (Tomato/Signal/Citrus/Leaf)' },
-            { val: 2, label: 'Option 3 (Crimson/Apricot/Chartr./Forest)' },
-            { val: 3, label: 'Option 4 (DeepRed/Burnt/SoftLime/Mint)' }
-        ].map(o => {
-            const name = o.label; // Simplified label logic for brevity
-            const sel = (DISPLAY.colorChoice && DISPLAY.colorChoice[colorKey] === o.val) ? 'selected' : '';
-            return `<option value="${o.val}" ${sel}>${o.val + 1}. Palette</option>`;
+        // Use restored original names
+        const names = PALETTE_NAMES[colorKey] || [];
+        const options = names.map((name, i) => {
+            const sel = (DISPLAY.colorChoice && DISPLAY.colorChoice[colorKey] === i) ? 'selected' : '';
+            return `<option value="${i}" ${sel}>${name}</option>`;
         }).join('');
 
-        const isTop = (idPrefix === 'top_tier'); // Special case for the label only row
+        const isTop = (idPrefix === 'top_tier');
         if (isTop) {
             return `
             <div class="grid-row">
