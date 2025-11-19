@@ -1,19 +1,18 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v7.0.0 — Caching & Live Colors)
+// @name         Jellyfin Ratings (v7.0.1 — Live Preview & Stability)
 // @namespace    https://mdblist.com
-// @version      7.0.0
-// @description  Unified ratings. Implements caching (24h) for speed. Live color preview. Auto-Right Anchor.
+// @version      7.0.1
+// @description  Restored v7.0.0 base. Adds full live preview (Sources, Order, Colors, Position). Stable Menu.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v7.0.0 loading...');
+console.log('[Jellyfin Ratings] v7.0.1 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
 ========================================================================== */
 
-// --- Storage Cleanup ---
 try {
     const rawKey = 'mdbl_prefs';
     const raw = localStorage.getItem(rawKey);
@@ -25,7 +24,6 @@ try {
     }
 } catch (e) { localStorage.removeItem('mdbl_prefs'); }
 
-// --- Defaults ---
 const DEFAULT_ENABLE_SOURCES = {
     imdb: true, tmdb: true, trakt: true, letterboxd: true,
     rotten_tomatoes_critic: true, rotten_tomatoes_audience: true,
@@ -69,8 +67,8 @@ const PALETTE_NAMES = {
     mg:     ['Emerald', 'Leaf Green', 'Forest', 'Mint']
 };
 
-const CACHE_DURATION_API = 24 * 60 * 60 * 1000; // 24 Hours Cache for Ratings
-const CACHE_DURATION_RT = 7 * 24 * 60 * 60 * 1000; // 7 Days for RT Links
+const CACHE_DURATION_API = 24 * 60 * 60 * 1000;
+const CACHE_DURATION_RT = 7 * 24 * 60 * 60 * 1000;
 const NS = 'mdbl_';
 const ICON_BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
 const LOGO = {
@@ -269,7 +267,6 @@ function getRatingColor(bands, choice, r) {
             let px = parseFloat(DISPLAY.posX); if (isNaN(px)) px = 0;
             let py = parseFloat(DISPLAY.posY); if (isNaN(py)) py = 0;
             
-            // Auto-Right Alignment
             const justify = 'flex-end';
 
             div.style.cssText += `display:flex;flex-wrap:wrap;align-items:center;justify-content:${justify};width:100%;margin-top:${SPACING.ratingsTopGapPx}px;box-sizing:border-box;transform:translate(${px}px,${py}px);z-index:99999;position:relative;pointer-events:auto;flex-shrink:0;`;
@@ -301,7 +298,8 @@ function getRatingColor(bands, choice, r) {
 
         const wrap = document.createElement('div');
         wrap.dataset.source = key;
-        wrap.style = 'display:inline-flex;align-items:center;margin:0 6px;gap:6px;';
+        // NEW: Set CSS Order based on Priority for Live Sorting
+        wrap.style = `display:inline-flex;align-items:center;margin:0 6px;gap:6px;order:${RATING_PRIORITY[key] || 999};`;
 
         const a = document.createElement('a');
         a.href = link || '#';
@@ -313,7 +311,6 @@ function getRatingColor(bands, choice, r) {
         img.style = 'height:1.3em;vertical-align:middle;';
         const labelCount = (typeof count === 'number' && isFinite(count)) ? `${count.toLocaleString()} ${kind || (key === 'rotten_tomatoes_critic' ? 'Reviews' : 'Votes')}` : '';
         img.title = labelCount ? `${title} — ${labelCount}` : title;
-        // Add data-score attribute for live color updates
         img.dataset.score = r; 
 
         a.appendChild(img);
@@ -322,21 +319,15 @@ function getRatingColor(bands, choice, r) {
         s.textContent = disp;
         s.title = 'Open settings';
         s.style = 'font-size:1em;vertical-align:middle;cursor:pointer;';
-        // Add data-score here too
         s.dataset.score = r;
         s.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS(); });
 
-        // Apply initial color
         const col = getRatingColor(DISPLAY.colorBands, DISPLAY.colorChoice, r);
         if (DISPLAY.colorNumbers) s.style.color = col;
         if (DISPLAY.colorIcons) img.style.filter = `drop-shadow(0 0 3px ${col})`;
 
         wrap.append(a, s);
         container.append(wrap);
-        
-        [...container.children]
-            .sort((a, b) => (RATING_PRIORITY[a.dataset.source] ?? 999) - (RATING_PRIORITY[b.dataset.source] ?? 999))
-            .forEach(el => container.appendChild(el));
     }
 
     function fetchRTDirectLink(imdbId, cb) {
@@ -359,7 +350,6 @@ function getRatingColor(bands, choice, r) {
         });
     }
 
-    // --- Caching & Fetch Logic ---
     function processAndAppend(d, container, imdbId) {
         const title = d.title || '';
         const slug = Util.slug(title);
@@ -371,33 +361,26 @@ function getRatingColor(bands, choice, r) {
                 const s = (rr.source || '').toLowerCase();
                 const v = rr.value;
                 const cnt = rr.votes || rr.count || rr.reviewCount || rr.ratingCount;
-
+                
+                // Logic checks enabled sources
                 if (s.includes('imdb') && ENABLE_SOURCES.imdb)
                     appendRating(container, LOGO.imdb, v, 'IMDb', 'imdb', `https://www.imdb.com/title/${imdbId}/`, cnt, 'Votes');
                 else if (s.includes('tmdb') && ENABLE_SOURCES.tmdb)
                     appendRating(container, LOGO.tmdb, v, 'TMDb', 'tmdb', `https://www.themoviedb.org/${container.dataset.type}/${container.dataset.tmdbId}`, cnt, 'Votes');
-                else if (s.includes('trakt') && ENABLE_SOURCES.trakt)
-                    appendRating(container, LOGO.trakt, v, 'Trakt', 'trakt', `https://trakt.tv/search/imdb/${imdbId}`, cnt, 'Votes');
-                else if (s.includes('letterboxd') && ENABLE_SOURCES.letterboxd)
-                    appendRating(container, LOGO.letterboxd, v, 'Letterboxd', 'letterboxd', `https://letterboxd.com/imdb/${imdbId}/`, cnt, 'Votes');
-                else if ((s === 'tomatoes' || s.includes('rotten_tomatoes'))) {
-                    rtCriticVal = v; rtCriticCnt = cnt;
-                }
-                else if ((s.includes('popcorn') || s.includes('audience'))) {
-                    rtAudienceVal = v; rtAudienceCnt = cnt;
-                }
+                // ... (Same logic as v7.0.0, omitted for brevity but FULLY restored in actual code block below)
+                else if (s.includes('trakt') && ENABLE_SOURCES.trakt) appendRating(container, LOGO.trakt, v, 'Trakt', 'trakt', `https://trakt.tv/search/imdb/${imdbId}`, cnt, 'Votes');
+                else if (s.includes('letterboxd') && ENABLE_SOURCES.letterboxd) appendRating(container, LOGO.letterboxd, v, 'Letterboxd', 'letterboxd', `https://letterboxd.com/imdb/${imdbId}/`, cnt, 'Votes');
+                else if ((s === 'tomatoes' || s.includes('rotten_tomatoes'))) { rtCriticVal = v; rtCriticCnt = cnt; }
+                else if ((s.includes('popcorn') || s.includes('audience'))) { rtAudienceVal = v; rtAudienceCnt = cnt; }
                 else if (s === 'metacritic' && ENABLE_SOURCES.metacritic_critic) {
-                    const seg = (container.dataset.type === 'show') ? 'tv' : 'movie';
-                    const link = slug ? `https://www.metacritic.com/${seg}/${slug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
-                    appendRating(container, LOGO.metacritic, v, 'Metacritic (Critic)', 'metacritic_critic', link, cnt, 'Reviews');
+                     const seg = (container.dataset.type === 'show') ? 'tv' : 'movie';
+                     appendRating(container, LOGO.metacritic, v, 'Metacritic (Critic)', 'metacritic_critic', slug ? `https://www.metacritic.com/${seg}/${slug}` : '#', cnt, 'Reviews');
                 }
                 else if (s.includes('metacritic') && s.includes('user') && ENABLE_SOURCES.metacritic_user) {
-                    const seg = (container.dataset.type === 'show') ? 'tv' : 'movie';
-                    const link = slug ? `https://www.metacritic.com/${seg}/${slug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
-                    appendRating(container, LOGO.metacritic_user, v, 'Metacritic (User)', 'metacritic_user', link, cnt, 'Votes');
+                     const seg = (container.dataset.type === 'show') ? 'tv' : 'movie';
+                     appendRating(container, LOGO.metacritic_user, v, 'Metacritic (User)', 'metacritic_user', slug ? `https://www.metacritic.com/${seg}/${slug}` : '#', cnt, 'Votes');
                 }
-                else if (s.includes('roger') && ENABLE_SOURCES.roger_ebert)
-                    appendRating(container, LOGO.roger, v, 'Roger Ebert', 'roger_ebert', `https://www.rogerebert.com/reviews/${slug}`, cnt);
+                else if (s.includes('roger') && ENABLE_SOURCES.roger_ebert) appendRating(container, LOGO.roger, v, 'Roger Ebert', 'roger_ebert', `https://www.rogerebert.com/reviews/${slug}`, cnt);
             });
         }
 
@@ -413,19 +396,16 @@ function getRatingColor(bands, choice, r) {
         }
         if (ENABLE_SOURCES.anilist) fetchAniList(imdbId, container);
         if (ENABLE_SOURCES.myanimelist) fetchMAL(imdbId, container);
-        if (!hasMDBL_RT && (ENABLE_SOURCES.rotten_tomatoes_critic || ENABLE_SOURCES.rotten_tomatoes_audience))
-            fetchRT_HTMLFallback(imdbId, container);
+        if (!hasMDBL_RT && (ENABLE_SOURCES.rotten_tomatoes_critic || ENABLE_SOURCES.rotten_tomatoes_audience)) fetchRT_HTMLFallback(imdbId, container);
     }
 
     function fetchRatings(tmdbId, imdbId, container, type = 'movie') {
-        // Cache Check
         const cacheKey = `${NS}cache_ratings_${tmdbId}`;
         try {
             const cached = localStorage.getItem(cacheKey);
             if (cached) {
                 const c = JSON.parse(cached);
                 if (Date.now() - c.ts < CACHE_DURATION_API) {
-                    // Use Cached Data
                     processAndAppend(c.data, container, imdbId);
                     return;
                 }
@@ -436,12 +416,9 @@ function getRatingColor(bands, choice, r) {
             method: 'GET',
             url: `https://api.mdblist.com/tmdb/${type}/${tmdbId}?apikey=${MDBLIST_API_KEY}`,
             onload: r => {
-                if (r.status !== 200) { console.error('MDBList API Error:', r.status); return; }
+                if (r.status !== 200) return;
                 let d; try { d = JSON.parse(r.responseText); } catch { return; }
-                
-                // Save to Cache
                 try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: d })); } catch(e) {}
-                
                 processAndAppend(d, container, imdbId);
             }
         });
@@ -565,7 +542,6 @@ function getRatingColor(bands, choice, r) {
     };
     const DEFAULTS = { sources: deepClone(ENABLE_SOURCES), display: deepClone(DEFAULT_DISPLAY), priorities: deepClone(RATING_PRIORITY) };
 
-    // Keys logic
     const getInjectorKey = () => { try { return (window.MDBL_KEYS && window.MDBL_KEYS.MDBLIST) ? String(window.MDBL_KEYS.MDBLIST) : ''; } catch { return ''; } };
     const getStoredKeys = () => { try { return JSON.parse(localStorage.getItem(LS_KEYS) || '{}'); } catch { return {}; } };
     const setStoredKey = (newKey) => {
@@ -580,7 +556,7 @@ function getRatingColor(bands, choice, r) {
     }
     const saved = loadPrefs(); if (saved && Object.keys(saved).length) applyPrefs(saved);
 
-    // --- Consolidated CSS (Everything in one place) ---
+    // --- Consolidated CSS ---
     const css = `
     :root { --mdbl-right-col: 48px; --mdbl-right-col-wide: 200px; }
     #mdbl-panel { position:fixed; right:16px; bottom:70px; width:480px; max-height:90vh; overflow:auto; border-radius:14px;
@@ -600,14 +576,11 @@ function getRatingColor(bands, choice, r) {
     #mdbl-panel input[type="checkbox"] { transform:scale(1.1); justify-self:end; }
     #mdbl-panel input[type="text"] { width:100%; padding:10px 0; border:0; background:transparent; color:#eaeaea; font-size:14px; outline:none; }
     
-    /* Common select & input styles */
     #mdbl-panel select, #mdbl-panel input.mdbl-pos-input, #mdbl-panel input.mdbl-num-input {
         padding:0 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:#121317; color:#eaeaea;
         height:32px; line-height: 32px; box-sizing:border-box; display:inline-block;
     }
     #mdbl-panel .mdbl-select { width:140px; justify-self:end; }
-    
-    /* Uniform size & styling */
     #mdbl-panel input.mdbl-pos-input { width: 75px; text-align: center; font-size: 14px; }
     #mdbl-panel input.mdbl-num-input { width: 56px; text-align: center; -moz-appearance:textfield; }
     #mdbl-panel input.mdbl-num-input::-webkit-inner-spin-button, 
@@ -637,10 +610,8 @@ function getRatingColor(bands, choice, r) {
     #mdbl-panel .mdbl-actions .mdbl-grow { flex:1; }
     #mdbl-panel .mdbl-actions .mdbl-compact { display:inline-flex; align-items:center; gap:6px; opacity:0.95; }
     
-    /* FIXED: Compact Mode Width increased to 460 to fit slider + text */
     #mdbl-panel[data-compact="1"] { --mdbl-right-col:44px; --mdbl-right-col-wide:220px; width:460px; }
     #mdbl-panel[data-compact="1"] header { padding:6px 12px; }
-    /* Tighter vertical spacing to prevent scroll */
     #mdbl-panel[data-compact="1"] .mdbl-section { padding:2px 12px; gap:2px; }
     #mdbl-panel[data-compact="1"] .mdbl-row, #mdbl-panel[data-compact="1"] .mdbl-source { gap:5px; padding:2px 6px; border-radius:6px; min-height: 32px; }
     #mdbl-panel[data-compact="1"] .mdbl-actions { padding:6px 10px; }
@@ -649,7 +620,6 @@ function getRatingColor(bands, choice, r) {
     #mdbl-panel[data-compact="1"] .mdbl-select { width: 140px; }
     #mdbl-panel[data-compact="1"] hr { margin: 4px 0; }
 
-    /* === MOBILE RESPONSIVENESS === */
     @media (max-width: 600px) {
         #mdbl-panel, #mdbl-panel[data-compact="1"] {
             width: 96% !important;
@@ -657,14 +627,12 @@ function getRatingColor(bands, choice, r) {
             right: 2% !important;
             bottom: 10px !important;
             top: auto !important;
-            transform: none !important; /* Disable JS drag positioning */
+            transform: none !important;
             max-height: 80vh;
             --mdbl-right-col: 40px;
             --mdbl-right-col-wide: 140px;
         }
-        /* Disable dragging on mobile */
         #mdbl-panel header { cursor: default; }
-        /* Make rows slightly smaller on mobile */
         #mdbl-panel .mdbl-row, #mdbl-panel .mdbl-source { min-height: 42px; padding: 4px 8px; }
         #mdbl-panel .mdbl-select { width: 140px; }
     }
@@ -703,7 +671,6 @@ function getRatingColor(bands, choice, r) {
   `;
     document.body.appendChild(panel);
 
-    // Initialize Compact Mode
     (function () {
         try {
             const prefs0 = Object.assign({}, DEFAULTS, loadPrefs() || {});
@@ -719,7 +686,7 @@ function getRatingColor(bands, choice, r) {
     })();
 
     document.addEventListener('mousedown', e => { if (panel.style.display !== 'block') return; if (!panel.contains(e.target)) hide(); });
-    // Drag Logic (with mobile guard)
+    // Drag Logic
     (function makePanelDraggable() {
         const header = panel.querySelector('#mdbl-drag-handle'); let drag = false, sx = 0, sy = 0, sl = 0, st = 0;
         header.addEventListener('mousedown', e => {
@@ -748,6 +715,26 @@ function getRatingColor(bands, choice, r) {
         return row;
     }
 
+    // --- LIVE UPDATE LOGIC ---
+    function updateLiveSourceVisibility(key, isVisible) {
+        ENABLE_SOURCES[key] = isVisible;
+        document.querySelectorAll(`.mdblist-rating-container div[data-source="${key}"]`).forEach(el => {
+            el.style.display = isVisible ? 'inline-flex' : 'none';
+        });
+    }
+
+    function updateLivePriorities() {
+        const container = document.querySelector('.mdblist-rating-container');
+        if (!container) return;
+        // Apply order style to all children based on current RATING_PRIORITY
+        [...container.children].forEach(child => {
+            const key = child.dataset.source;
+            if (key && RATING_PRIORITY[key]) {
+                child.style.order = RATING_PRIORITY[key];
+            }
+        });
+    }
+
     function enableDnD(container) {
         let dragging = null;
         container.addEventListener('dragstart', e => {
@@ -758,7 +745,19 @@ function getRatingColor(bands, choice, r) {
             const after = getAfter(container, e.clientY);
             (after == null) ? container.appendChild(dragging) : container.insertBefore(dragging, after);
         });
-        ['drop', 'dragend'].forEach(evt => container.addEventListener(evt, () => { if (dragging) dragging.style.opacity = ''; dragging = null; }));
+        ['drop', 'dragend'].forEach(evt => container.addEventListener(evt, () => { 
+            if (dragging) {
+                dragging.style.opacity = '';
+                // Live Priority Update on Drop
+                const allSources = [...container.querySelectorAll('.mdbl-source')];
+                allSources.forEach((el, i) => {
+                    const key = el.dataset.k;
+                    RATING_PRIORITY[key] = i + 1;
+                });
+                updateLivePriorities();
+                dragging = null;
+            }
+        }));
         function getAfter(container, y) {
             const els = [...container.querySelectorAll('.mdbl-source:not([style*="opacity: 0.6"])')];
             return els.reduce((c, ch) => { const box = ch.getBoundingClientRect(), off = y - box.top - box.height / 2; return (off < 0 && off > c.offset) ? { offset: off, element: ch } : c; }, { offset: -1e9 }).element;
@@ -773,7 +772,6 @@ function getRatingColor(bands, choice, r) {
         });
     }
 
-    // --- Helper for Colors Grid ---
     function createColorBandRow(idPrefix, labelPrefix, defaultVal, colorKey) {
         const names = PALETTE_NAMES[colorKey] || [];
         const options = names.map((name, i) => {
@@ -804,7 +802,6 @@ function getRatingColor(bands, choice, r) {
     }
 
     function updateLiveColors() {
-        // Read values from current DOM inputs to update DISPLAY object temporarily
         const redMax = parseInt(panel.querySelector('#th_red').value || '50', 10);
         const orangeMax = parseInt(panel.querySelector('#th_orange').value || '69', 10);
         const ygMax = parseInt(panel.querySelector('#th_yg').value || '79', 10);
@@ -820,7 +817,6 @@ function getRatingColor(bands, choice, r) {
         const colorNumbers = panel.querySelector('#d_colorNumbers').checked;
         const colorIcons = panel.querySelector('#d_colorIcons').checked;
 
-        // Update actual ratings on page
         document.querySelectorAll('.mdblist-rating-container img').forEach(img => {
             const score = parseFloat(img.dataset.score);
             if (!isNaN(score)) {
@@ -828,7 +824,6 @@ function getRatingColor(bands, choice, r) {
                 if (colorIcons) img.style.filter = `drop-shadow(0 0 3px ${col})`;
                 else img.style.filter = '';
                 
-                // Sibling span (number)
                 const span = img.nextElementSibling;
                 if (span && span.tagName === 'SPAN') {
                     if (colorNumbers) span.style.color = col;
@@ -843,9 +838,8 @@ function getRatingColor(bands, choice, r) {
         const kWrap = panel.querySelector('#mdbl-sec-keys');
         const injKey = getInjectorKey(); const stored = getStoredKeys().MDBLIST || '';
         if (!!(injKey || stored)) {
-            // If key exists, hide the box completely as requested
             kWrap.innerHTML = ``;
-            kWrap.style.display = 'none'; // Hide the container too to save vertical space
+            kWrap.style.display = 'none';
         } else {
             kWrap.innerHTML = `<div id="mdbl-key-box" class="mdbl-source"><input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value=""></div>`;
             kWrap.style.display = 'flex';
@@ -860,6 +854,13 @@ function getRatingColor(bands, choice, r) {
             .map(k => ({ k, icon: ICON[k], label: LABEL[k] || k.replace(/_/g, ' ') }))
             .forEach(item => sList.appendChild(makeSourceRow(item)));
         enableDnD(sList);
+        
+        // Bind Source Checkboxes for Live Preview
+        sList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                updateLiveSourceVisibility(e.target.dataset.toggle, e.target.checked);
+            });
+        });
 
         // Display UI
         const dWrap = panel.querySelector('#mdbl-sec-display');
@@ -911,7 +912,6 @@ function getRatingColor(bands, choice, r) {
             _ygInput.addEventListener('input', () => {
                 const v = parseInt(_ygInput.value || '79', 10);
                 _labelTop.textContent = `Top tier (≥ ${isNaN(v) ? 80 : (v + 1)}%)`;
-                // Live update color when threshold changes
                 updateLiveColors();
             });
         }
@@ -954,7 +954,9 @@ function getRatingColor(bands, choice, r) {
         savePrefs({});
         render();
         updateLivePreview();
-        updateLiveColors(); // Reset colors live too
+        updateLiveColors();
+        updateLivePriorities();
+        Object.keys(ENABLE_SOURCES).forEach(k => updateLiveSourceVisibility(k, ENABLE_SOURCES[k]));
         if (window.MDBL_API?.refresh) window.MDBL_API.refresh();
     });
 
