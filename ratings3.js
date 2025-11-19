@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.4.2 — Live Preview + XY Fix)
+// @name         Jellyfin Ratings (v6.4.3 — Fixes & Live Preview)
 // @namespace    https://mdblist.com
-// @version      6.4.2
-// @description  Unified ratings for Jellyfin with live-preview positioning and 24h toggle.
+// @version      6.4.3
+// @description  Unified ratings for Jellyfin with XY positioning, live preview, and 24h toggle.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
@@ -219,12 +219,13 @@ function scanLinks(){
       
       const div=document.createElement('div'); div.className='mdblist-rating-container';
       
-      // Safely parse X/Y for initial render
-      const px = parseFloat(DISPLAY.posX) || 0;
-      const py = parseFloat(DISPLAY.posY) || 0;
-      
-      // Layout: default flex-start. Position via transform.
-      div.style=`display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;width:calc(100% + 6px);margin-left:-6px;margin-top:${SPACING.ratingsTopGapPx}px;padding-right:0;box-sizing:border-box;transform: translate(${px}px, ${py}px); z-index: 10;`;
+      // Safety check for positions
+      const px = parseFloat(DISPLAY.posX);
+      const py = parseFloat(DISPLAY.posY);
+      const safeX = isNaN(px) ? 0 : px;
+      const safeY = isNaN(py) ? 0 : py;
+
+      div.style=`display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;width:calc(100% + 6px);margin-left:-6px;margin-top:${SPACING.ratingsTopGapPx}px;padding-right:0;box-sizing:border-box;transform: translate(${safeX}px, ${safeY}px); z-index: 10;`;
 
       Object.assign(div.dataset,{type, tmdbId, mdblFetched:'0'}); ref.insertAdjacentElement('afterend',div);
     });
@@ -452,7 +453,7 @@ function updateAll(){
     removeBuiltInEndsAt();
     scanLinks();
     updateRatings();
-  }catch{}
+  }catch(e){ console.error('Ratings script error:', e); }
 }
 const MDbl={debounceTimer:null};
 MDbl.debounce=(fn,wait=150)=>{ clearTimeout(MDbl.debounceTimer); MDbl.debounceTimer=setTimeout(fn,wait); };
