@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.7.0 — Uniform UI & Clean Names)
+// @name         Jellyfin Ratings (v6.8.0 — Clean Menu & Uniform Compact)
 // @namespace    https://mdblist.com
-// @version      6.7.0
-// @description  Unified ratings. Clean color names (no hex). Uniform input sizes. Mobile/Desktop layout optimized.
+// @version      6.8.0
+// @description  Unified ratings. API Key box hidden if valid. Uniform box sizes in Compact Mode.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v6.7.0 loading...');
+console.log('[Jellyfin Ratings] v6.8.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -54,8 +54,6 @@ const SCALE_MULTIPLIER = {
     metacritic_critic: 1, metacritic_user: 10, myanimelist: 10, anilist: 1,
     rotten_tomatoes_critic: 1, rotten_tomatoes_audience: 1
 };
-
-// --- Color Palettes & Clean Names ---
 const COLOR_SWATCHES = {
     red:    ['#e53935', '#f44336', '#d32f2f', '#c62828'],
     orange: ['#fb8c00', '#f39c12', '#ffa726', '#ef6c00'],
@@ -617,7 +615,7 @@ function getRatingColor(bands, choice, r) {
     #mdbl-panel[data-compact="1"] .mdbl-row, #mdbl-panel[data-compact="1"] .mdbl-source { gap:5px; padding:2px 6px; border-radius:6px; min-height: 32px; }
     #mdbl-panel[data-compact="1"] .mdbl-actions { padding:6px 10px; }
     #mdbl-panel[data-compact="1"] .mdbl-src-left img { height:16px; }
-    #mdbl-panel[data-compact="1"] select, #mdbl-panel[data-compact="1"] input.mdbl-pos-input { height: 28px; font-size: 12px; line-height: 28px; }
+    #mdbl-panel[data-compact="1"] select, #mdbl-panel[data-compact="1"] input.mdbl-pos-input, #mdbl-panel[data-compact="1"] input.mdbl-num-input { height: 28px; font-size: 12px; line-height: 28px; }
     #mdbl-panel[data-compact="1"] .mdbl-select { width: 140px; }
     #mdbl-panel[data-compact="1"] hr { margin: 4px 0; }
 
@@ -780,9 +778,12 @@ function getRatingColor(bands, choice, r) {
         const kWrap = panel.querySelector('#mdbl-sec-keys');
         const injKey = getInjectorKey(); const stored = getStoredKeys().MDBLIST || '';
         if (!!(injKey || stored)) {
-            kWrap.innerHTML = `<div id="mdbl-key-box" class="mdbl-source"><div class="mdbl-key-stored">MDBList API key is stored</div></div>`;
+            // If key exists, hide the box completely as requested
+            kWrap.innerHTML = ``;
+            kWrap.style.display = 'none'; // Hide the container too to save vertical space
         } else {
             kWrap.innerHTML = `<div id="mdbl-key-box" class="mdbl-source"><input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value=""></div>`;
+            kWrap.style.display = 'flex';
         }
 
         // Sources UI
