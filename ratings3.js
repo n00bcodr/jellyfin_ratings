@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.8.0 — Clean Menu & Uniform Compact)
+// @name         Jellyfin Ratings (v6.9.0 — Dynamic Alignment)
 // @namespace    https://mdblist.com
-// @version      6.8.0
-// @description  Unified ratings. API Key box hidden if valid. Uniform box sizes in Compact Mode.
+// @version      6.9.0
+// @description  Unified ratings. Adds Alignment (Left/Center/Right) for responsive positioning. Sliders act as offset.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v6.8.0 loading...');
+console.log('[Jellyfin Ratings] v6.9.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -36,6 +36,7 @@ const DEFAULT_DISPLAY = {
     showPercentSymbol: true,
     colorNumbers: true,
     colorIcons: false,
+    align: 'left', // NEW: Alignment Default
     posX: 0,
     posY: 0,
     colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
@@ -61,7 +62,6 @@ const COLOR_SWATCHES = {
     mg:     ['#43a047', '#66bb6a', '#388e3c', '#81c784']
 };
 
-// Removed Hex Codes from names
 const PALETTE_NAMES = {
     red:    ['Alert Red', 'Tomato', 'Crimson', 'Deep Red'],
     orange: ['Amber', 'Signal Orange', 'Apricot', 'Burnt Orange'],
@@ -88,6 +88,7 @@ const RATING_PRIORITY = Object.assign({}, DEFAULT_PRIORITIES, __CFG__.priorities
 
 if (isNaN(parseFloat(DISPLAY.posX))) DISPLAY.posX = 0;
 if (isNaN(parseFloat(DISPLAY.posY))) DISPLAY.posY = 0;
+if (!['left', 'center', 'right'].includes(DISPLAY.align)) DISPLAY.align = 'left';
 
 const INJ_KEYS = (window.MDBL_KEYS || {});
 const LS_KEYS_JSON = localStorage.getItem(`${NS}keys`);
@@ -209,7 +210,6 @@ function getRatingColor(bands, choice, r) {
         if (!span) {
             span = document.createElement('span');
             span.id = 'customEndsAt';
-            // Click to open settings
             span.title = 'Click to open Jellyfin Ratings Settings';
             span.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -268,8 +268,16 @@ function getRatingColor(bands, choice, r) {
 
                 let px = parseFloat(DISPLAY.posX); if (isNaN(px)) px = 0;
                 let py = parseFloat(DISPLAY.posY); if (isNaN(py)) py = 0;
+                
+                // Align Logic
+                const justify = {
+                    'left': 'flex-start',
+                    'center': 'center',
+                    'right': 'flex-end'
+                }[DISPLAY.align] || 'flex-start';
 
-                div.style.cssText += `display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;width:calc(100% + 6px);margin-left:-6px;margin-top:${SPACING.ratingsTopGapPx}px;padding-right:0;box-sizing:border-box;transform:translate(${px}px,${py}px);z-index:99999;position:relative;pointer-events:auto;`;
+                // Note: justify-content controls the alignment. transform controls the offset.
+                div.style.cssText += `display:flex;flex-wrap:wrap;align-items:center;justify-content:${justify};width:calc(100% + 6px);margin-left:-6px;margin-top:${SPACING.ratingsTopGapPx}px;padding-right:0;box-sizing:border-box;transform:translate(${px}px,${py}px);z-index:99999;position:relative;pointer-events:auto;`;
                 
                 Object.assign(div.dataset, { type, tmdbId, mdblFetched: '0' });
                 ref.insertAdjacentElement('afterend', div);
@@ -805,6 +813,15 @@ function getRatingColor(bands, choice, r) {
         <div class="mdbl-row"><span>Show %</span><input type="checkbox" id="d_showPercent" ${DISPLAY.showPercentSymbol ? 'checked' : ''}></div>
         
         <div class="mdbl-row wide">
+            <span>Alignment</span>
+            <select id="d_align" class="mdbl-select">
+                <option value="left" ${DISPLAY.align === 'left' ? 'selected' : ''}>Left</option>
+                <option value="center" ${DISPLAY.align === 'center' ? 'selected' : ''}>Center</option>
+                <option value="right" ${DISPLAY.align === 'right' ? 'selected' : ''}>Right</option>
+            </select>
+        </div>
+        
+        <div class="mdbl-row wide">
             <span>Position X (px)</span>
             <div class="grid-right" style="flex:1; display:flex; justify-content:flex-end; align-items:center; gap:8px;">
             <input type="range" id="d_posX_range" min="-1500" max="1500" value="${DISPLAY.posX || 0}" style="flex:1; cursor:pointer;">
@@ -838,6 +855,15 @@ function getRatingColor(bands, choice, r) {
                 num.addEventListener('input', () => { rng.value = num.value; updateLivePreview(); });
             }
         });
+
+        // Bind Alignment
+        const alignSel = panel.querySelector('#d_align');
+        if(alignSel) {
+             alignSel.addEventListener('change', () => {
+                 // Optional: Live Preview for Alignment could be added here by modifying the flex justify style directly
+                 // For now, it saves on 'Save & Apply'
+             });
+        }
 
         // Dynamic Label for Top Tier
         const _ygInput = panel.querySelector('#th_yg');
@@ -892,6 +918,9 @@ function getRatingColor(bands, choice, r) {
         prefs.display.colorNumbers = panel.querySelector('#d_colorNumbers').checked;
         prefs.display.colorIcons = panel.querySelector('#d_colorIcons').checked;
         prefs.display.showPercentSymbol = panel.querySelector('#d_showPercent').checked;
+        
+        const alignEl = panel.querySelector('#d_align');
+        if(alignEl) prefs.display.align = alignEl.value;
 
         prefs.display.posX = parseInt(panel.querySelector('#d_posX').value || '0', 10);
         prefs.display.posY = parseInt(panel.querySelector('#d_posY').value || '0', 10);
