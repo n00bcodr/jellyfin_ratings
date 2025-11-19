@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v8.3.0 — Trakt/Meta Fix)
+// @name         Jellyfin Ratings (v8.4.0 — Tooltips & Metacritic Fix)
 // @namespace    https://mdblist.com
-// @version      8.3.0
-// @description  Restores v6.4.1 link logic for Trakt & Metacritic. Stable Base. Forced Links. Theme Sync & Live Preview.
+// @version      8.4.0
+// @description  Unified ratings. Unified Tooltips (Name - Count Type). Metacritic User link to overview. Stable Base.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v8.3.0 loading...');
+console.log('[Jellyfin Ratings] v8.4.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -149,9 +149,10 @@ function updateGlobalStyles() {
             text-decoration: none;
             transition: transform 0.2s ease;
             cursor: pointer;
+            color: inherit;
         }
         .mdbl-rating-item:hover {
-            transform: scale(1.15) rotate(2deg);
+            transform: scale(1.15) rotate(3deg);
             z-index: 1000;
         }
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; transition: filter 0.2s; }
@@ -219,7 +220,6 @@ function fixUrl(url, domain) {
     return `https://${domain}/${clean}`;
 }
 
-// New Helper: Slug Generator (from old script)
 const localSlug = t => (t || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
 document.addEventListener('click', (e) => {
@@ -276,29 +276,32 @@ function updateEndsAt() {
     if (span.textContent !== content) span.textContent = content;
 }
 
-function createRatingHtml(key, val, link, count, title) {
+function createRatingHtml(key, val, link, count, title, kind) {
     if (val === null || isNaN(val)) return '';
     if (!LOGO[key]) return '';
 
     const n = parseFloat(val) * (SCALE[key] || 1);
     const r = Math.round(n);
     
-    // Fallback for link
+    // Tooltip text
+    const tooltip = (count && count > 0) 
+        ? `${title} — ${count.toLocaleString()} ${kind}`
+        : title;
+
     const safeLink = (link && link !== '#' && !link.startsWith('http://192')) ? link : '#';
     
     return `
-        <a href="${safeLink}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}">
-            <img src="${LOGO[key]}" alt="${title}" title="${title} ${count ? '('+count+')' : ''}">
-            <span title="${title}">${CFG.display.showPercentSymbol ? r+'%' : r}</span>
+        <a href="${safeLink}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}" title="${tooltip}">
+            <img src="${LOGO[key]}" alt="${title}">
+            <span>${CFG.display.showPercentSymbol ? r+'%' : r}</span>
         </a>
     `;
 }
 
 function renderRatings(container, data, pageImdbId, type) {
     let html = '';
-    const add = (k, v, lnk, cnt, tit) => html += createRatingHtml(k, v, lnk, cnt, tit);
+    const add = (k, v, lnk, cnt, tit, kind) => html += createRatingHtml(k, v, lnk, cnt, tit, kind);
     
-    // Robust ID extraction
     const ids = {
         imdb: data.imdbid || data.imdb_id || pageImdbId,
         tmdb: data.id || data.tmdbid || data.tmdb_id || container.dataset.tmdbId,
@@ -316,51 +319,47 @@ function renderRatings(container, data, pageImdbId, type) {
             const c = r.votes || r.count;
             const apiLink = r.url; 
 
-            // --- FORCED LINKS LOGIC ---
             if (s.includes('imdb')) {
-                // Force IMDb link via ID if available
                 const lnk = ids.imdb ? `https://www.imdb.com/title/${ids.imdb}/` : (apiLink && apiLink.startsWith('http') ? apiLink : null);
-                add('imdb', v, lnk, c, 'IMDb');
+                add('imdb', v, lnk, c, 'IMDb', 'Ratings');
             } 
             else if (s.includes('tmdb')) {
                 const lnk = ids.tmdb ? `https://www.themoviedb.org/${type}/${ids.tmdb}` : '#';
-                add('tmdb', v, lnk, c, 'TMDb');
+                add('tmdb', v, lnk, c, 'TMDb', 'Ratings');
             }
             else if (s.includes('trakt')) {
-                // RESTORED: Use search query via IMDb if Trakt ID missing (Old Script Logic)
                 const lnk = ids.imdb ? `https://trakt.tv/search/imdb/${ids.imdb}` : '#';
-                add('trakt', v, lnk, c, 'Trakt');
+                add('trakt', v, lnk, c, 'Trakt', 'Ratings');
             }
             else if (s.includes('letterboxd')) {
-                // RESTORED: Use IMDb ID for Letterboxd
                 const lnk = ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : '#';
-                add('letterboxd', v, lnk, c, 'Letterboxd');
+                add('letterboxd', v, lnk, c, 'Letterboxd', 'Ratings');
             }
             else if (s === 'tomatoes' || s.includes('rotten_tomatoes')) {
-                add('rotten_tomatoes_critic', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'RT Critic');
+                add('rotten_tomatoes_critic', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'Rotten Tomatoes', 'Reviews');
             }
             else if (s.includes('popcorn') || s.includes('audience')) {
-                add('rotten_tomatoes_audience', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'RT Audience');
+                add('rotten_tomatoes_audience', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'Rotten Tomatoes', 'Ratings');
             }
             else if (s.includes('metacritic') && !s.includes('user')) {
-                // RESTORED: Generate slug locally or search
                 const slug = localSlug(data.title);
                 const lnk = slug ? `https://www.metacritic.com/${metaType}/${slug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(data.title||'')}/results`;
-                add('metacritic_critic', v, lnk, c, 'Metacritic');
+                add('metacritic_critic', v, lnk, c, 'Metacritic', 'Reviews');
             }
             else if (s.includes('metacritic') && s.includes('user')) {
+                // LINK FIXED: Go to main page, not user-reviews directly
                 const slug = localSlug(data.title);
-                const lnk = slug ? `https://www.metacritic.com/${metaType}/${slug}/user-reviews` : `https://www.metacritic.com/search/all/${encodeURIComponent(data.title||'')}/results`;
-                add('metacritic_user', v, lnk, c, 'User');
+                const lnk = slug ? `https://www.metacritic.com/${metaType}/${slug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(data.title||'')}/results`;
+                add('metacritic_user', v, lnk, c, 'Metacritic', 'Ratings');
             }
             else if (s.includes('roger')) {
-                add('roger_ebert', v, fixUrl(apiLink, 'rogerebert.com'), c, 'Roger Ebert');
+                add('roger_ebert', v, fixUrl(apiLink, 'rogerebert.com'), c, 'Roger Ebert', 'Reviews');
             }
             else if (s.includes('anilist')) {
-                add('anilist', v, fixUrl(apiLink, 'anilist.co'), c, 'AniList');
+                add('anilist', v, fixUrl(apiLink, 'anilist.co'), c, 'AniList', 'Ratings');
             }
             else if (s.includes('myanimelist')) {
-                add('myanimelist', v, fixUrl(apiLink, 'myanimelist.net'), c, 'MAL');
+                add('myanimelist', v, fixUrl(apiLink, 'myanimelist.net'), c, 'MAL', 'Ratings');
             }
         });
     }
@@ -400,24 +399,20 @@ function scan() {
     const imdbLink = document.querySelector('a[href*="imdb.com/title/"]');
     if (imdbLink) {
         const m = imdbLink.href.match(/tt\d+/);
-        // Save global IMDB ID when found
-        if (m) currentImdbId = m[0];
-        
-        if (m && m[0] !== currentImdbId) {
-            currentImdbId = m[0];
-            document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
+        if (m) {
+            if (m[0] !== currentImdbId) {
+                currentImdbId = m[0];
+                document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
+            }
         }
     }
 
-    // Reverted to v7.8.0 selector for maximum compatibility
     [...document.querySelectorAll('a.emby-button[href*="themoviedb.org/"]')].forEach(a => {
         if (a.dataset.mdblProc === '1') return;
         const m = a.href.match(/\/(movie|tv)\/(\d+)/);
         if (m) {
             const type = m[1] === 'tv' ? 'show' : 'movie';
             const id = m[2];
-            // Do NOT set dataset.mdblProc yet, wait until we actually inject to be safe? 
-            // No, stick to standard logic.
             a.dataset.mdblProc = '1';
             
             const wrapper = document.querySelector('.itemMiscInfo');
@@ -434,6 +429,7 @@ function scan() {
 }
 
 setInterval(scan, 500);
+
 
 /* ==========================================================================
    4. SETTINGS MENU (INIT)
