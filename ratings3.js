@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v7.7.0 — Links & Theme Fix)
+// @name         Jellyfin Ratings (v7.8.0 — Links & Color Sync Fix)
 // @namespace    https://mdblist.com
-// @version      7.7.0
-// @description  Unified ratings. Fixed Links (API-based). Theme Color Sync (Accent). Live Drag-Sort. Wider Inputs.
+// @version      7.8.0
+// @description  Unified ratings. Fixes broken links (Trakt, LB, etc.). Syncs color from Play button. Fixes menu closing.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v7.7.0 loading...');
+console.log('[Jellyfin Ratings] v7.8.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -15,7 +15,6 @@ console.log('[Jellyfin Ratings] v7.7.0 loading...');
 
 const NS = 'mdbl_';
 
-// --- Defaults ---
 const DEFAULTS = {
     sources: {
         imdb: true, tmdb: true, trakt: true, letterboxd: true,
@@ -137,7 +136,6 @@ function updateGlobalStyles() {
     document.documentElement.style.setProperty('--mdbl-y', `${CFG.display.posY}px`);
 
     let rules = `
-        /* Container */
         .mdblist-rating-container {
             display: flex; flex-wrap: wrap; align-items: center;
             justify-content: flex-end; 
@@ -146,25 +144,19 @@ function updateGlobalStyles() {
             transform: translate(var(--mdbl-x), var(--mdbl-y));
             z-index: 99999; position: relative; pointer-events: auto; flex-shrink: 0;
         }
-
-        /* Items */
         .mdbl-rating-item {
             display: inline-flex; align-items: center; margin: 0 6px; gap: 6px;
             text-decoration: none;
             transition: transform 0.2s ease;
             cursor: pointer;
-            color: inherit;
         }
         .mdbl-rating-item:hover {
             transform: scale(1.1) rotate(2deg);
             z-index: 1000;
         }
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; transition: filter 0.2s; }
-        .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
-
-        /* Helpers */
+        .mdbl-rating-item span { font-size: 1em; vertical-align: middle; cursor: pointer; transition: color 0.2s; }
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; }
-        
         #customEndsAt { 
             font-size: inherit; opacity: 0.7; cursor: pointer; 
             margin-left: 10px; margin-right: 24px; display: inline; vertical-align: baseline;
@@ -172,7 +164,6 @@ function updateGlobalStyles() {
         #customEndsAt:hover { opacity: 1.0; text-decoration: underline; }
     `;
 
-    // Live Order & Visibility
     Object.keys(CFG.priorities).forEach(key => {
         const isEnabled = CFG.sources[key];
         const order = CFG.priorities[key] || 999;
@@ -199,21 +190,16 @@ function getRatingColor(bands, choice, r) {
 
 function refreshDomElements() {
     updateGlobalStyles(); 
-    
     document.querySelectorAll('.mdbl-rating-item').forEach(el => {
         const score = parseFloat(el.dataset.score);
         if (isNaN(score)) return;
-
         const color = getRatingColor(CFG.display.colorBands, CFG.display.colorChoice, score);
         const img = el.querySelector('img');
         const span = el.querySelector('span');
-
         if (CFG.display.colorIcons) img.style.filter = `drop-shadow(0 0 3px ${color})`;
         else img.style.filter = '';
-        
         if (CFG.display.colorNumbers) span.style.color = color;
         else span.style.color = '';
-
         const text = CFG.display.showPercentSymbol ? `${Math.round(score)}%` : `${Math.round(score)}`;
         if (span.textContent !== text) span.textContent = text;
     });
@@ -233,7 +219,6 @@ document.addEventListener('click', (e) => {
 }, true);
 
 function updateEndsAt() {
-    // Hide native elements
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
         if (el.id === 'customEndsAt' || el.closest('.mdblist-rating-container')) return;
         const t = (el.textContent || '').toLowerCase();
@@ -241,7 +226,6 @@ function updateEndsAt() {
              el.style.display = 'none';
         }
     });
-
     document.querySelectorAll('.mediaInfoCriticRating, .mediaInfoAudienceRating, .starRatingContainer').forEach(el => el.style.display = 'none');
 
     const primary = document.querySelector('.itemMiscInfo.itemMiscInfo-primary') || document.querySelector('.itemMiscInfo');
@@ -300,10 +284,10 @@ function renderRatings(container, data, imdbId) {
     let html = '';
     const add = (k, v, lnk, cnt, tit) => html += createRatingHtml(k, v, lnk, cnt, tit);
     
-    // Use data from API to determine IDs if possible
+    // Extract IDs for fallback links
     const ids = {
         imdb: data.imdbid || imdbId,
-        tmdb: data.id, // mdb object usually has id at root
+        tmdb: data.id || container.dataset.tmdbId,
         trakt: data.traktid
     };
 
@@ -312,22 +296,22 @@ function renderRatings(container, data, imdbId) {
             const s = (r.source || '').toLowerCase();
             const v = r.value;
             const c = r.votes || r.count;
-            
-            // LINKS FIXED: Using IDs from API response
-            if (s.includes('imdb')) add('imdb', v, ids.imdb ? `https://www.imdb.com/title/${ids.imdb}/` : '#', c, 'IMDb');
-            else if (s.includes('tmdb')) add('tmdb', v, `https://www.themoviedb.org/${container.dataset.type}/${container.dataset.tmdbId}`, c, 'TMDb');
-            else if (s.includes('trakt')) add('trakt', v, ids.trakt ? `https://trakt.tv/movies/${ids.trakt}` : '#', c, 'Trakt'); // Basic trakt link fallback
-            else if (s.includes('letterboxd')) add('letterboxd', v, r.url || (ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : '#'), c, 'Letterboxd');
-            else if (s === 'tomatoes' || s.includes('rotten_tomatoes')) add('rotten_tomatoes_critic', v, r.url || '#', c, 'RT Critic');
-            else if (s.includes('popcorn') || s.includes('audience')) add('rotten_tomatoes_audience', v, r.url || '#', c, 'RT Audience');
-            else if (s.includes('metacritic') && !s.includes('user')) add('metacritic_critic', v, r.url || '#', c, 'Metacritic');
-            else if (s.includes('metacritic') && s.includes('user')) add('metacritic_user', v, r.url || '#', c, 'User');
-            else if (s.includes('roger')) add('roger_ebert', v, r.url || '#', c, 'Roger Ebert');
-            else if (s.includes('anilist')) add('anilist', v, r.url || '#', c, 'AniList');
-            else if (s.includes('myanimelist')) add('myanimelist', v, r.url || '#', c, 'MAL');
+            // Prefer direct URL from API, else fallback
+            const url = r.url;
+
+            if (s.includes('imdb')) add('imdb', v, url || `https://www.imdb.com/title/${ids.imdb}/`, c, 'IMDb');
+            else if (s.includes('tmdb')) add('tmdb', v, url || `https://www.themoviedb.org/${container.dataset.type}/${ids.tmdb}`, c, 'TMDb');
+            else if (s.includes('trakt')) add('trakt', v, url || (ids.trakt ? `https://trakt.tv/movies/${ids.trakt}` : '#'), c, 'Trakt');
+            else if (s.includes('letterboxd')) add('letterboxd', v, url || `https://letterboxd.com/imdb/${ids.imdb}/`, c, 'Letterboxd');
+            else if (s === 'tomatoes' || s.includes('rotten_tomatoes')) add('rotten_tomatoes_critic', v, url || '#', c, 'RT Critic');
+            else if (s.includes('popcorn') || s.includes('audience')) add('rotten_tomatoes_audience', v, url || '#', c, 'RT Audience');
+            else if (s.includes('metacritic') && !s.includes('user')) add('metacritic_critic', v, url || '#', c, 'Metacritic');
+            else if (s.includes('metacritic') && s.includes('user')) add('metacritic_user', v, url || '#', c, 'User');
+            else if (s.includes('roger')) add('roger_ebert', v, url || '#', c, 'Roger Ebert');
+            else if (s.includes('anilist')) add('anilist', v, url || '#', c, 'AniList');
+            else if (s.includes('myanimelist')) add('myanimelist', v, url || '#', c, 'MAL');
         });
     }
-    
     container.innerHTML = html;
     refreshDomElements();
 }
@@ -394,9 +378,20 @@ function scan() {
 setInterval(scan, 500);
 
 /* ==========================================================================
-   4. SETTINGS MENU (INIT)
+   4. SETTINGS MENU
 ========================================================================== */
 let dragSrc = null;
+let themeColor = '#2a6df4'; // Default fallback
+
+function getJellyfinColor() {
+    // Try to grab color from a primary button on screen
+    const btn = document.querySelector('.button-submit, .btnPlay, .main-button, .emby-button-foreground');
+    if(btn) {
+        const col = window.getComputedStyle(btn).backgroundColor;
+        if(col && col !== 'rgba(0, 0, 0, 0)') return col;
+    }
+    return '#2a6df4';
+}
 
 function initMenu() {
     if(document.getElementById('mdbl-panel')) return;
@@ -407,8 +402,7 @@ function initMenu() {
         border:1px solid rgba(255,255,255,0.15); background:rgba(22,22,26,0.94); backdrop-filter:blur(8px);
         color:#eaeaea; z-index:100000; box-shadow:0 20px 40px rgba(0,0,0,0.45); display:none; font-family: sans-serif; }
     #mdbl-panel header { position:sticky; top:0; background:rgba(22,22,26,0.98); padding:12px 16px; border-bottom:1px solid rgba(255,255,255,0.08);
-        display:flex; align-items:center; gap:8px; cursor:move; z-index:999; backdrop-filter:blur(8px); }
-    #mdbl-panel header h3 { margin:0; font-size:15px; font-weight:700; flex:1; }
+        display:flex; align-items:center; gap:8px; cursor:move; z-index:999; backdrop-filter:blur(8px); font-weight: bold; justify-content: space-between; }
     #mdbl-close { border:none; background:transparent; color:#aaa; font-size:18px; cursor:pointer; padding:4px; border-radius:8px; }
     #mdbl-close:hover { background:rgba(255,255,255,0.06); color:#fff; }
     #mdbl-panel .mdbl-section { padding:12px 16px; display:flex; flex-direction:column; gap:10px; }
@@ -418,13 +412,13 @@ function initMenu() {
     #mdbl-panel .mdbl-row { background:transparent; border:1px solid rgba(255,255,255,0.06); min-height: 48px; box-sizing:border-box; }
     #mdbl-panel .mdbl-row.wide { grid-template-columns:1fr var(--mdbl-right-col-wide); }
     
-    /* Theme Color Sync */
-    #mdbl-panel input[type="checkbox"] { 
-        transform: scale(1.2); cursor: pointer; 
-        accent-color: var(--theme-primary-color, #2a6df4); 
-    }
+    /* Theme Sync */
+    #mdbl-panel input[type="checkbox"] { transform:scale(1.1); justify-self:end; cursor: pointer; accent-color: var(--mdbl-theme); }
+    #mdbl-panel input[type="range"] { flex: 1; margin: 0 12px; cursor: pointer; accent-color: var(--mdbl-theme); }
+    
     #mdbl-panel input[type="text"] { width:100%; padding:10px 0; border:0; background:transparent; color:#eaeaea; font-size:14px; outline:none; }
     
+    /* Inputs & Selects (Dark Spinners) */
     #mdbl-panel select, #mdbl-panel input.mdbl-pos-input, #mdbl-panel input.mdbl-num-input {
         padding:0 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:#121317; color:#eaeaea;
         height:32px; line-height: 32px; box-sizing:border-box; display:inline-block; color-scheme: dark;
@@ -436,16 +430,8 @@ function initMenu() {
     #mdbl-panel .mdbl-actions { position:sticky; bottom:0; background:rgba(22,22,26,0.96); display:flex; gap:10px; padding:12px 16px; border-top:1px solid rgba(255,255,255,0.08); }
     #mdbl-panel button { padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:#1b1c20; color:#eaeaea; cursor:pointer; }
     
-    /* Theme Button */
-    #mdbl-panel button.primary { 
-        background: var(--theme-primary-color, #2a6df4) !important; 
-        border-color: var(--theme-primary-color, #2a6df4) !important; 
-        color: #fff; 
-    }
+    #mdbl-panel button.primary { background: var(--mdbl-theme) !important; border-color: var(--mdbl-theme) !important; color: #fff; }
     
-    /* Theme Sliders */
-    #mdbl-panel input[type="range"] { flex: 1; margin: 0 12px; cursor: pointer; accent-color: var(--theme-primary-color, #2a6df4); }
-
     #mdbl-sources { display:flex; flex-direction:column; gap:8px; }
     .mdbl-source { background:#0f1115; border:1px solid rgba(255,255,255,0.1); cursor: grab; }
     .mdbl-src-left { display:flex; align-items:center; gap:10px; }
@@ -495,6 +481,10 @@ function initMenu() {
     document.body.appendChild(panel);
 
     window.MDBL_OPEN_SETTINGS = () => {
+        // Sync Theme Color on Open
+        themeColor = getJellyfinColor();
+        panel.style.setProperty('--mdbl-theme', themeColor);
+        
         renderMenuContent(panel);
         panel.style.display = 'block';
     };
@@ -514,6 +504,13 @@ function initMenu() {
         panel.style.top = (ly + (e.clientY - sy)) + 'px';
     });
     document.addEventListener('mouseup', () => isDrag = false);
+    
+    // Close on click outside
+    document.addEventListener('click', (e) => {
+        if (panel.style.display === 'block' && !panel.contains(e.target) && e.target.id !== 'customEndsAt') {
+            panel.style.display = 'none';
+        }
+    });
     
     if(loadConfig().display.compactLevel) panel.setAttribute('data-compact', '1');
 }
@@ -604,7 +601,6 @@ function renderMenuContent(panel) {
 
     panel.querySelector('#mdbl-close').onclick = () => panel.style.display = 'none';
     
-    // Live Updates
     const updateLiveAll = () => {
         CFG.display.colorNumbers = panel.querySelector('#d_cnum').checked;
         CFG.display.colorIcons = panel.querySelector('#d_cicon').checked;
@@ -649,11 +645,10 @@ function renderMenuContent(panel) {
         panel.setAttribute('data-compact', e.target.checked ? '1':'0');
     });
 
-    // Live Sort (DragOver)
     let dragSrc = null;
     panel.querySelectorAll('.mdbl-src-row').forEach(row => {
         row.addEventListener('dragstart', e => { dragSrc = row; e.dataTransfer.effectAllowed = 'move'; });
-        // Update on dragover (live sort)
+        // Live Sort
         row.addEventListener('dragover', e => { 
             e.preventDefault(); 
             if (dragSrc && dragSrc !== row) {
@@ -680,12 +675,6 @@ function renderMenuContent(panel) {
     panel.querySelector('#mdbl-btn-reset').onclick = () => {
         if(confirm('Reset all settings?')) { localStorage.removeItem('mdbl_prefs'); location.reload(); }
     };
-    
-    const getInjectorKey = () => { try { return (window.MDBL_KEYS && window.MDBL_KEYS.MDBLIST) ? String(window.MDBL_KEYS.MDBLIST) : ''; } catch { return ''; } };
-    if (getInjectorKey()) {
-       const kw = panel.querySelector('#mdbl-sec-keys');
-       if(kw) { kw.innerHTML = ''; kw.style.display = 'none'; }
-    }
 }
 
 function createColorBandRow(id, lbl, val, key) {
