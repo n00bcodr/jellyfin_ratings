@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v9.2.0 — Nav & Menu Rescue)
+// @name         Jellyfin Ratings (v9.3.0 — Smart ID Check)
 // @namespace    https://mdblist.com
-// @version      9.2.0
-// @description  Unified ratings. Fixes navigation/loading issues by using loose selectors & aggressive reset. Fixes Menu click.
+// @version      9.3.0
+// @description  Unified ratings. Fixes loading on navigation by comparing IDs (no flags). Re-adds Theme Color Sync.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v9.2.0 loading...');
+console.log('[Jellyfin Ratings] v9.3.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -88,7 +88,6 @@ const LABEL = {
 
 let CFG = loadConfig();
 let currentImdbId = null;
-let lastUrl = window.location.href;
 
 function loadConfig() {
     try {
@@ -98,7 +97,6 @@ function loadConfig() {
         if (p.display && (isNaN(parseInt(p.display.posX)) || isNaN(parseInt(p.display.posY)))) {
             p.display.posX = 0; p.display.posY = 0;
         }
-        delete p.display.align; // Cleanup old key
         return {
             sources: { ...DEFAULTS.sources, ...p.sources },
             display: { ...DEFAULTS.display, ...p.display, colorBands: { ...DEFAULTS.display.colorBands, ...p.display?.colorBands }, colorChoice: { ...DEFAULTS.display.colorChoice, ...p.display?.colorChoice } },
@@ -142,7 +140,7 @@ function updateGlobalStyles() {
     let rules = `
         .mdblist-rating-container {
             display: flex; flex-wrap: wrap; align-items: center;
-            justify-content: flex-end; /* Always Right Aligned */
+            justify-content: flex-end; /* Auto-Right Anchor */
             width: 100%; margin-top: ${CFG.spacing.ratingsTopGapPx}px;
             box-sizing: border-box;
             transform: translate(var(--mdbl-x), var(--mdbl-y));
@@ -161,8 +159,6 @@ function updateGlobalStyles() {
         }
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; transition: filter 0.2s; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
-        
-        /* Ensure Visibility */
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; }
         
         /* Ends At & Settings Icon */
@@ -236,17 +232,18 @@ function fixUrl(url, domain) {
     return `https://${domain}/${clean}`;
 }
 
-// Menu Click Handler
 document.addEventListener('click', (e) => {
-    // Check for Settings Trigger (Text or Icon)
-    const trigger = e.target.closest('#customEndsAt') || e.target.closest('#mdbl-settings-trigger');
-    if (trigger) {
+    if (e.target.id === 'customEndsAt' || e.target.closest('#mdbl-settings-trigger')) {
         e.preventDefault(); e.stopPropagation();
         
-        // Safety: Re-init menu if missing from DOM
-        if(!document.getElementById('mdbl-panel')) initMenu();
-        
-        if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
+        // --- RE-ADD THEME SYNC HERE ---
+        if(window.MDBL_OPEN_SETTINGS) {
+             window.MDBL_OPEN_SETTINGS();
+        } else {
+             // If not ready, try init
+             initMenu();
+             if(window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
+        }
     }
 }, true);
 
@@ -272,7 +269,6 @@ function parseRuntimeToMinutes(text) {
 }
 
 function updateEndsAt() {
-    // Hide native
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
         if (el.id === 'customEndsAt' || el.id === 'mdbl-settings-trigger' || el.closest('.mdblist-rating-container')) return;
         const t = (el.textContent || '').toLowerCase();
@@ -286,7 +282,6 @@ function updateEndsAt() {
     if (!primary) return;
 
     let minutes = 0;
-    // Try Finding specific items first
     for (const el of primary.querySelectorAll('.mediaInfoItem, .mediaInfoText, span, div')) {
         const parsed = parseRuntimeToMinutes((el.textContent || '').trim());
         if (parsed > 0) { minutes = parsed; break; }
@@ -378,7 +373,7 @@ function renderRatings(container, data, pageImdbId, type) {
                 add('trakt', v, lnk, c, 'Trakt', 'Votes');
             }
             else if (s.includes('letterboxd')) {
-                const lnk = ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : fixUrl(apiLink, 'letterboxd.com');
+                const lnk = ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : '#';
                 add('letterboxd', v, lnk, c, 'Letterboxd', 'Votes');
             }
             else if (s === 'tomatoes' || s.includes('rotten_tomatoes')) {
@@ -437,42 +432,33 @@ function fetchRatings(container, tmdbId, type) {
 }
 
 function scan() {
-    // Detect URL Change (Navigation)
-    if (window.location.href !== lastUrl) {
-        lastUrl = window.location.href;
-        currentImdbId = null; 
-        // Aggressively clear old containers
-        document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
-        // Reset processed flags on ALL links to force re-scan
-        document.querySelectorAll('a[data-mdbl-proc]').forEach(el => delete el.dataset.mdblProc);
-    }
-    
+    // Update Ends At repeatedly to ensure it stays
     updateEndsAt();
 
+    // 1. Capture Current IMDb ID if visible
     const imdbLink = document.querySelector('a[href*="imdb.com/title/"]');
     if (imdbLink) {
         const m = imdbLink.href.match(/tt\d+/);
-        if (m) {
-            if (m[0] !== currentImdbId) {
-                currentImdbId = m[0];
-                document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
-            }
-        }
+        if (m) currentImdbId = m[0];
     }
 
-    // LOOSE SELECTOR for Maximum Compatibility (Restored from v7.x)
-    // Searches for ANY link to tmdb, not just those with .emby-button class
-    [...document.querySelectorAll('a[href*="themoviedb.org/"]')].forEach(a => {
-        if (a.dataset.mdblProc === '1') return;
+    // 2. Scan for TMDb buttons
+    const buttons = document.querySelectorAll('a[href*="themoviedb.org/"]');
+    buttons.forEach(a => {
         const m = a.href.match(/\/(movie|tv)\/(\d+)/);
-        if (m) {
-            const type = m[1] === 'tv' ? 'show' : 'movie';
-            const id = m[2];
-            
-            // Only mark as processed if we successfully find a place to inject
-            const wrapper = document.querySelector('.itemMiscInfo');
-            if (wrapper && !wrapper.querySelector('.mdblist-rating-container')) {
-                a.dataset.mdblProc = '1'; // Mark now
+        if (!m) return;
+
+        const type = m[1] === 'tv' ? 'show' : 'movie';
+        const id = m[2];
+        
+        // Check if we already have a container for THIS specific ID
+        // This bypasses the 'mdblProc' flag issues on navigation
+        const wrapper = document.querySelector('.itemMiscInfo');
+        if (wrapper) {
+            const existing = wrapper.querySelector(`.mdblist-rating-container[data-tmdb-id="${id}"]`);
+            if (!existing) {
+                // Clean up old ones (from previous pages)
+                wrapper.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
                 
                 const div = document.createElement('div');
                 div.className = 'mdblist-rating-container';
@@ -492,7 +478,6 @@ setInterval(scan, 500);
    4. SETTINGS MENU (INIT)
 ========================================================================== */
 let dragSrc = null;
-let themeColor = '#2a6df4';
 
 function getJellyfinColor() {
     const rootVar = getComputedStyle(document.documentElement).getPropertyValue('--theme-primary-color').trim();
