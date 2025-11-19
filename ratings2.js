@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v9.0.0 — German Runtime & Nav Fix)
+// @name         Jellyfin Ratings (v9.1.0 — Nav Recycling Fix)
 // @namespace    https://mdblist.com
-// @version      9.0.0
-// @description  Unified ratings. Fixes "Ends at" for German locales (Std/Min). Fixes loading on page navigation. Auto-Right Alignment.
+// @version      9.1.0
+// @description  Unified ratings. Fixes ratings not loading on navigation (resets processed flags). Fixes Menu opening.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v9.0.0 loading...');
+console.log('[Jellyfin Ratings] v9.1.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -88,7 +88,7 @@ const LABEL = {
 
 let CFG = loadConfig();
 let currentImdbId = null;
-let lastUrl = window.location.href; // Track URL changes
+let lastUrl = window.location.href;
 
 function loadConfig() {
     try {
@@ -98,8 +98,6 @@ function loadConfig() {
         if (p.display && (isNaN(parseInt(p.display.posX)) || isNaN(parseInt(p.display.posY)))) {
             p.display.posX = 0; p.display.posY = 0;
         }
-        delete p.display.align;
-        
         return {
             sources: { ...DEFAULTS.sources, ...p.sources },
             display: { ...DEFAULTS.display, ...p.display, colorBands: { ...DEFAULTS.display.colorBands, ...p.display?.colorBands }, colorChoice: { ...DEFAULTS.display.colorChoice, ...p.display?.colorChoice } },
@@ -143,7 +141,7 @@ function updateGlobalStyles() {
     let rules = `
         .mdblist-rating-container {
             display: flex; flex-wrap: wrap; align-items: center;
-            justify-content: flex-end; /* Always Right Aligned */
+            justify-content: flex-end; 
             width: 100%; margin-top: ${CFG.spacing.ratingsTopGapPx}px;
             box-sizing: border-box;
             transform: translate(var(--mdbl-x), var(--mdbl-y));
@@ -228,7 +226,6 @@ updateGlobalStyles();
    3. MAIN LOGIC
 ========================================================================== */
 
-// Link Fixer
 function fixUrl(url, domain) {
     if (!url) return null;
     if (url.startsWith('http')) return url;
@@ -237,45 +234,37 @@ function fixUrl(url, domain) {
 }
 
 document.addEventListener('click', (e) => {
+    // Trigger Settings
     if (e.target.id === 'customEndsAt' || e.target.closest('#mdbl-settings-trigger')) {
         e.preventDefault(); e.stopPropagation();
+        // Ensure Menu Exists before opening
+        if (!document.getElementById('mdbl-panel')) initMenu(); 
         if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
-        return;
     }
 }, true);
 
 function formatTime(minutes) {
     const d = new Date(Date.now() + minutes * 60000);
-    
     const opts = CFG.display.endsAt24h 
         ? { hour: '2-digit', minute: '2-digit', hour12: false } 
         : { hour: 'numeric', minute: '2-digit', hour12: true };
-        
     return d.toLocaleTimeString([], opts);
 }
 
-// --- ROBUST RUNTIME PARSER (MULTI-LANGUAGE) ---
 function parseRuntimeToMinutes(text) {
     if (!text) return 0;
-    
-    // 1. Try standard "1 hr 30 min" or "1h 30m"
     let m = text.match(/(?:(\d+)\s*(?:h|hr|std?)\w*\s*)?(?:(\d+)\s*(?:m|min)\w*)?/i);
     if (m && (m[1] || m[2])) {
         const h = parseInt(m[1] || '0', 10);
         const min = parseInt(m[2] || '0', 10);
         if (h > 0 || min > 0) return h * 60 + min;
     }
-
-    // 2. Try just "90 min"
     m = text.match(/(\d+)\s*(?:m|min)\w*/i);
     if (m) return parseInt(m[1], 10);
-
     return 0;
 }
-// ---------------------------------------------
 
 function updateEndsAt() {
-    // Hide native
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
         if (el.id === 'customEndsAt' || el.id === 'mdbl-settings-trigger' || el.closest('.mdblist-rating-container')) return;
         const t = (el.textContent || '').toLowerCase();
@@ -288,18 +277,14 @@ function updateEndsAt() {
     const primary = document.querySelector('.itemMiscInfo.itemMiscInfo-primary') || document.querySelector('.itemMiscInfo');
     if (!primary) return;
 
-    // Find runtime in child nodes
     let minutes = 0;
+    // Try Finding specific items first
     for (const el of primary.querySelectorAll('.mediaInfoItem, .mediaInfoText, span, div')) {
         const parsed = parseRuntimeToMinutes((el.textContent || '').trim());
         if (parsed > 0) { minutes = parsed; break; }
     }
-    // Fallback: Parse full text
-    if (minutes === 0) {
-        minutes = parseRuntimeToMinutes((primary.textContent || '').trim());
-    }
+    if (minutes === 0) minutes = parseRuntimeToMinutes((primary.textContent || '').trim());
     
-    // Cleanup if no runtime
     if (!minutes) {
         if (primary.querySelector('#customEndsAt')) primary.querySelector('#customEndsAt').remove();
         if (primary.querySelector('#mdbl-settings-trigger')) primary.querySelector('#mdbl-settings-trigger').remove();
@@ -444,13 +429,16 @@ function fetchRatings(container, tmdbId, type) {
 }
 
 function scan() {
-    // --- FORCE RELOAD ON NAV CHANGE ---
+    // --- RECYCLING FIX START ---
     if (window.location.href !== lastUrl) {
         lastUrl = window.location.href;
         currentImdbId = null; 
         document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
+        // Reset Processed Flag on ALL buttons to force re-check on new page
+        document.querySelectorAll('a[data-mdbl-proc]').forEach(el => delete el.dataset.mdblProc);
     }
-    
+    // --- RECYCLING FIX END ---
+
     updateEndsAt();
 
     const imdbLink = document.querySelector('a[href*="imdb.com/title/"]');
@@ -470,10 +458,12 @@ function scan() {
         if (m) {
             const type = m[1] === 'tv' ? 'show' : 'movie';
             const id = m[2];
-            a.dataset.mdblProc = '1';
             
             const wrapper = document.querySelector('.itemMiscInfo');
             if (wrapper && !wrapper.querySelector('.mdblist-rating-container')) {
+                // Only mark as processed if we actually insert
+                a.dataset.mdblProc = '1';
+                
                 const div = document.createElement('div');
                 div.className = 'mdblist-rating-container';
                 div.dataset.type = type;
@@ -725,7 +715,7 @@ function renderMenuContent(panel) {
         CFG.display.colorNumbers = panel.querySelector('#d_cnum').checked;
         CFG.display.colorIcons = panel.querySelector('#d_cicon').checked;
         CFG.display.showPercentSymbol = panel.querySelector('#d_pct').checked;
-        CFG.display.endsAt24h = panel.querySelector('#d_24h').checked;
+        CFG.display.endsAt24h = panel.querySelector('#d_24h').checked; // Live Update 24h
         
         CFG.display.colorBands.redMax = parseInt(panel.querySelector('#th_red').value)||50;
         CFG.display.colorBands.orangeMax = parseInt(panel.querySelector('#th_orange').value)||69;
