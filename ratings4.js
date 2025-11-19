@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.11.0 — Auto-Right Anchor)
+// @name         Jellyfin Ratings (v7.0.0 — Caching & Live Colors)
 // @namespace    https://mdblist.com
-// @version      6.11.0
-// @description  Unified ratings. Auto-anchored to right for responsive movement. No Alignment menu. Fixes disappearing.
+// @version      7.0.0
+// @description  Unified ratings. Implements caching (24h) for speed. Live color preview. Auto-Right Anchor.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v6.11.0 loading...');
+console.log('[Jellyfin Ratings] v7.0.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -69,7 +69,8 @@ const PALETTE_NAMES = {
     mg:     ['Emerald', 'Leaf Green', 'Forest', 'Mint']
 };
 
-const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000;
+const CACHE_DURATION_API = 24 * 60 * 60 * 1000; // 24 Hours Cache for Ratings
+const CACHE_DURATION_RT = 7 * 24 * 60 * 60 * 1000; // 7 Days for RT Links
 const NS = 'mdbl_';
 const ICON_BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
 const LOGO = {
@@ -142,7 +143,6 @@ function getRatingColor(bands, choice, r) {
     style.id = 'mdblist-styles';
     style.textContent = `
     .mdblist-rating-container { pointer-events: auto; }
-    /* IMPORTANT: Force visibility even if Jellyfin tries to hide parent row */
     .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; }
     #customEndsAt { font-size: inherit; opacity: 0.7; cursor: pointer; }
     #customEndsAt:hover { opacity: 1.0; text-decoration: underline; }
@@ -220,7 +220,7 @@ function getRatingColor(bands, choice, r) {
 
             Object.assign(span.style, {
                 marginLeft: '10px',
-                marginRight: '24px', // Spacing to the right
+                marginRight: '24px',
                 display: 'inline', 
                 verticalAlign: 'baseline'
             });
@@ -241,7 +241,6 @@ function getRatingColor(bands, choice, r) {
     }
 
     function scanLinks() {
-        // Detect page changes
         document.querySelectorAll('a.emby-button[href*="imdb.com/title/"]').forEach(a => {
             if (a.dataset.mdblSeen === '1') return; a.dataset.mdblSeen = '1';
             const m = a.href.match(/imdb\.com\/title\/(tt\d+)/); if (!m) return;
@@ -252,7 +251,6 @@ function getRatingColor(bands, choice, r) {
             }
         });
 
-        // Inject Container
         [...document.querySelectorAll('a.emby-button[href*="themoviedb.org/"]')].forEach(a => {
             if (a.dataset.mdblProc === '1') return;
             const m = a.href.match(/themoviedb\.org\/(movie|tv)\/(\d+)/); if (!m) return;
@@ -261,10 +259,8 @@ function getRatingColor(bands, choice, r) {
             const type = m[1] === 'tv' ? 'show' : 'movie';
             const tmdbId = m[2];
             
-            // ROBUST FIX: Attach to Main Wrapper to survive resize
             const mainWrapper = findMainWrapper();
             if (!mainWrapper) return;
-
             if (mainWrapper.querySelector('.mdblist-rating-container')) return;
 
             const div = document.createElement('div');
@@ -273,8 +269,7 @@ function getRatingColor(bands, choice, r) {
             let px = parseFloat(DISPLAY.posX); if (isNaN(px)) px = 0;
             let py = parseFloat(DISPLAY.posY); if (isNaN(py)) py = 0;
             
-            // AUTOMATIC RIGHT ALIGNMENT (flex-end)
-            // This ensures they move left when the window shrinks
+            // Auto-Right Alignment
             const justify = 'flex-end';
 
             div.style.cssText += `display:flex;flex-wrap:wrap;align-items:center;justify-content:${justify};width:100%;margin-top:${SPACING.ratingsTopGapPx}px;box-sizing:border-box;transform:translate(${px}px,${py}px);z-index:99999;position:relative;pointer-events:auto;flex-shrink:0;`;
@@ -318,19 +313,23 @@ function getRatingColor(bands, choice, r) {
         img.style = 'height:1.3em;vertical-align:middle;';
         const labelCount = (typeof count === 'number' && isFinite(count)) ? `${count.toLocaleString()} ${kind || (key === 'rotten_tomatoes_critic' ? 'Reviews' : 'Votes')}` : '';
         img.title = labelCount ? `${title} — ${labelCount}` : title;
+        // Add data-score attribute for live color updates
+        img.dataset.score = r; 
+
         a.appendChild(img);
 
         const s = document.createElement('span');
         s.textContent = disp;
         s.title = 'Open settings';
         s.style = 'font-size:1em;vertical-align:middle;cursor:pointer;';
+        // Add data-score here too
+        s.dataset.score = r;
         s.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS(); });
 
-        if (DISPLAY.colorNumbers || DISPLAY.colorIcons) {
-            const col = getRatingColor(DISPLAY.colorBands, DISPLAY.colorChoice, r);
-            if (DISPLAY.colorNumbers) s.style.color = col;
-            if (DISPLAY.colorIcons) img.style.filter = `drop-shadow(0 0 3px ${col})`;
-        }
+        // Apply initial color
+        const col = getRatingColor(DISPLAY.colorBands, DISPLAY.colorChoice, r);
+        if (DISPLAY.colorNumbers) s.style.color = col;
+        if (DISPLAY.colorIcons) img.style.filter = `drop-shadow(0 0 3px ${col})`;
 
         wrap.append(a, s);
         container.append(wrap);
@@ -360,66 +359,90 @@ function getRatingColor(bands, choice, r) {
         });
     }
 
+    // --- Caching & Fetch Logic ---
+    function processAndAppend(d, container, imdbId) {
+        const title = d.title || '';
+        const slug = Util.slug(title);
+        let rtCriticVal = null, rtCriticCnt = null;
+        let rtAudienceVal = null, rtAudienceCnt = null;
+
+        if (d.ratings) {
+            d.ratings.forEach(rr => {
+                const s = (rr.source || '').toLowerCase();
+                const v = rr.value;
+                const cnt = rr.votes || rr.count || rr.reviewCount || rr.ratingCount;
+
+                if (s.includes('imdb') && ENABLE_SOURCES.imdb)
+                    appendRating(container, LOGO.imdb, v, 'IMDb', 'imdb', `https://www.imdb.com/title/${imdbId}/`, cnt, 'Votes');
+                else if (s.includes('tmdb') && ENABLE_SOURCES.tmdb)
+                    appendRating(container, LOGO.tmdb, v, 'TMDb', 'tmdb', `https://www.themoviedb.org/${container.dataset.type}/${container.dataset.tmdbId}`, cnt, 'Votes');
+                else if (s.includes('trakt') && ENABLE_SOURCES.trakt)
+                    appendRating(container, LOGO.trakt, v, 'Trakt', 'trakt', `https://trakt.tv/search/imdb/${imdbId}`, cnt, 'Votes');
+                else if (s.includes('letterboxd') && ENABLE_SOURCES.letterboxd)
+                    appendRating(container, LOGO.letterboxd, v, 'Letterboxd', 'letterboxd', `https://letterboxd.com/imdb/${imdbId}/`, cnt, 'Votes');
+                else if ((s === 'tomatoes' || s.includes('rotten_tomatoes'))) {
+                    rtCriticVal = v; rtCriticCnt = cnt;
+                }
+                else if ((s.includes('popcorn') || s.includes('audience'))) {
+                    rtAudienceVal = v; rtAudienceCnt = cnt;
+                }
+                else if (s === 'metacritic' && ENABLE_SOURCES.metacritic_critic) {
+                    const seg = (container.dataset.type === 'show') ? 'tv' : 'movie';
+                    const link = slug ? `https://www.metacritic.com/${seg}/${slug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
+                    appendRating(container, LOGO.metacritic, v, 'Metacritic (Critic)', 'metacritic_critic', link, cnt, 'Reviews');
+                }
+                else if (s.includes('metacritic') && s.includes('user') && ENABLE_SOURCES.metacritic_user) {
+                    const seg = (container.dataset.type === 'show') ? 'tv' : 'movie';
+                    const link = slug ? `https://www.metacritic.com/${seg}/${slug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
+                    appendRating(container, LOGO.metacritic_user, v, 'Metacritic (User)', 'metacritic_user', link, cnt, 'Votes');
+                }
+                else if (s.includes('roger') && ENABLE_SOURCES.roger_ebert)
+                    appendRating(container, LOGO.roger, v, 'Roger Ebert', 'roger_ebert', `https://www.rogerebert.com/reviews/${slug}`, cnt);
+            });
+        }
+
+        const hasMDBL_RT = (rtCriticVal != null) || (rtAudienceVal != null);
+        if (hasMDBL_RT) {
+            fetchRTDirectLink(imdbId, (rtUrl) => {
+                const link = rtUrl || (title ? `https://www.rottentomatoes.com/search?search=${encodeURIComponent(title)}` : '#');
+                if (ENABLE_SOURCES.rotten_tomatoes_critic && rtCriticVal != null)
+                    appendRating(container, LOGO.tomatoes, rtCriticVal, 'RT Critic', 'rotten_tomatoes_critic', link, rtCriticCnt, 'Reviews');
+                if (ENABLE_SOURCES.rotten_tomatoes_audience && rtAudienceVal != null)
+                    appendRating(container, LOGO.audience, rtAudienceVal, 'RT Audience', 'rotten_tomatoes_audience', link, rtAudienceCnt, 'Votes');
+            });
+        }
+        if (ENABLE_SOURCES.anilist) fetchAniList(imdbId, container);
+        if (ENABLE_SOURCES.myanimelist) fetchMAL(imdbId, container);
+        if (!hasMDBL_RT && (ENABLE_SOURCES.rotten_tomatoes_critic || ENABLE_SOURCES.rotten_tomatoes_audience))
+            fetchRT_HTMLFallback(imdbId, container);
+    }
+
     function fetchRatings(tmdbId, imdbId, container, type = 'movie') {
+        // Cache Check
+        const cacheKey = `${NS}cache_ratings_${tmdbId}`;
+        try {
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) {
+                const c = JSON.parse(cached);
+                if (Date.now() - c.ts < CACHE_DURATION_API) {
+                    // Use Cached Data
+                    processAndAppend(c.data, container, imdbId);
+                    return;
+                }
+            }
+        } catch(e) {}
+
         GM_xmlhttpRequest({
             method: 'GET',
             url: `https://api.mdblist.com/tmdb/${type}/${tmdbId}?apikey=${MDBLIST_API_KEY}`,
             onload: r => {
                 if (r.status !== 200) { console.error('MDBList API Error:', r.status); return; }
                 let d; try { d = JSON.parse(r.responseText); } catch { return; }
-                const title = d.title || '';
-                const slug = Util.slug(title);
-
-                let rtCriticVal = null, rtCriticCnt = null;
-                let rtAudienceVal = null, rtAudienceCnt = null;
-
-                d.ratings?.forEach(rr => {
-                    const s = (rr.source || '').toLowerCase();
-                    const v = rr.value;
-                    const cnt = rr.votes || rr.count || rr.reviewCount || rr.ratingCount;
-
-                    if (s.includes('imdb') && ENABLE_SOURCES.imdb)
-                        appendRating(container, LOGO.imdb, v, 'IMDb', 'imdb', `https://www.imdb.com/title/${imdbId}/`, cnt, 'Votes');
-                    else if (s.includes('tmdb') && ENABLE_SOURCES.tmdb)
-                        appendRating(container, LOGO.tmdb, v, 'TMDb', 'tmdb', `https://www.themoviedb.org/${type}/${tmdbId}`, cnt, 'Votes');
-                    else if (s.includes('trakt') && ENABLE_SOURCES.trakt)
-                        appendRating(container, LOGO.trakt, v, 'Trakt', 'trakt', `https://trakt.tv/search/imdb/${imdbId}`, cnt, 'Votes');
-                    else if (s.includes('letterboxd') && ENABLE_SOURCES.letterboxd)
-                        appendRating(container, LOGO.letterboxd, v, 'Letterboxd', 'letterboxd', `https://letterboxd.com/imdb/${imdbId}/`, cnt, 'Votes');
-                    else if ((s === 'tomatoes' || s.includes('rotten_tomatoes'))) {
-                        rtCriticVal = v; rtCriticCnt = cnt;
-                    }
-                    else if ((s.includes('popcorn') || s.includes('audience'))) {
-                        rtAudienceVal = v; rtAudienceCnt = cnt;
-                    }
-                    else if (s === 'metacritic' && ENABLE_SOURCES.metacritic_critic) {
-                        const seg = (container.dataset.type === 'show') ? 'tv' : 'movie';
-                        const link = slug ? `https://www.metacritic.com/${seg}/${slug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
-                        appendRating(container, LOGO.metacritic, v, 'Metacritic (Critic)', 'metacritic_critic', link, cnt, 'Reviews');
-                    }
-                    else if (s.includes('metacritic') && s.includes('user') && ENABLE_SOURCES.metacritic_user) {
-                        const seg = (container.dataset.type === 'show') ? 'tv' : 'movie';
-                        const link = slug ? `https://www.metacritic.com/${seg}/${slug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(title)}/results`;
-                        appendRating(container, LOGO.metacritic_user, v, 'Metacritic (User)', 'metacritic_user', link, cnt, 'Votes');
-                    }
-                    else if (s.includes('roger') && ENABLE_SOURCES.roger_ebert)
-                        appendRating(container, LOGO.roger, v, 'Roger Ebert', 'roger_ebert', `https://www.rogerebert.com/reviews/${slug}`, cnt);
-                });
-
-                const hasMDBL_RT = (rtCriticVal != null) || (rtAudienceVal != null);
-                if (hasMDBL_RT) {
-                    fetchRTDirectLink(imdbId, (rtUrl) => {
-                        const link = rtUrl || (title ? `https://www.rottentomatoes.com/search?search=${encodeURIComponent(title)}` : '#');
-                        if (ENABLE_SOURCES.rotten_tomatoes_critic && rtCriticVal != null)
-                            appendRating(container, LOGO.tomatoes, rtCriticVal, 'RT Critic', 'rotten_tomatoes_critic', link, rtCriticCnt, 'Reviews');
-                        if (ENABLE_SOURCES.rotten_tomatoes_audience && rtAudienceVal != null)
-                            appendRating(container, LOGO.audience, rtAudienceVal, 'RT Audience', 'rotten_tomatoes_audience', link, rtAudienceCnt, 'Votes');
-                    });
-                }
-                if (ENABLE_SOURCES.anilist) fetchAniList(imdbId, container);
-                if (ENABLE_SOURCES.myanimelist) fetchMAL(imdbId, container);
-                if (!hasMDBL_RT && (ENABLE_SOURCES.rotten_tomatoes_critic || ENABLE_SOURCES.rotten_tomatoes_audience))
-                    fetchRT_HTMLFallback(imdbId, container);
+                
+                // Save to Cache
+                try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: d })); } catch(e) {}
+                
+                processAndAppend(d, container, imdbId);
             }
         });
     }
@@ -465,7 +488,7 @@ function getRatingColor(bands, choice, r) {
     function fetchRT_HTMLFallback(imdbId, container) {
         const key = `${NS}rt_${imdbId}`;
         const cache = localStorage.getItem(key);
-        if (cache) { try { const j = JSON.parse(cache); if (Date.now() - j.time < CACHE_DURATION) { addRT(container, j.scores); return; } } catch { } }
+        if (cache) { try { const j = JSON.parse(cache); if (Date.now() - j.time < CACHE_DURATION_RT) { addRT(container, j.scores); return; } } catch { } }
         const q = `SELECT ?rtid WHERE { ?item wdt:P345 "${imdbId}" . ?item wdt:P1258 ?rtid . } LIMIT 1`;
         GM_xmlhttpRequest({
             method: 'GET', url: 'https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(q),
@@ -780,6 +803,41 @@ function getRatingColor(bands, choice, r) {
         </div>`;
     }
 
+    function updateLiveColors() {
+        // Read values from current DOM inputs to update DISPLAY object temporarily
+        const redMax = parseInt(panel.querySelector('#th_red').value || '50', 10);
+        const orangeMax = parseInt(panel.querySelector('#th_orange').value || '69', 10);
+        const ygMax = parseInt(panel.querySelector('#th_yg').value || '79', 10);
+
+        const colorChoice = {
+            red: +(panel.querySelector('#col_red')?.value || 0),
+            orange: +(panel.querySelector('#col_orange')?.value || 0),
+            yg: +(panel.querySelector('#col_yg')?.value || 0),
+            mg: +(panel.querySelector('#col_mg')?.value || 0)
+        };
+
+        const colorBands = { redMax, orangeMax, ygMax };
+        const colorNumbers = panel.querySelector('#d_colorNumbers').checked;
+        const colorIcons = panel.querySelector('#d_colorIcons').checked;
+
+        // Update actual ratings on page
+        document.querySelectorAll('.mdblist-rating-container img').forEach(img => {
+            const score = parseFloat(img.dataset.score);
+            if (!isNaN(score)) {
+                const col = getRatingColor(colorBands, colorChoice, score);
+                if (colorIcons) img.style.filter = `drop-shadow(0 0 3px ${col})`;
+                else img.style.filter = '';
+                
+                // Sibling span (number)
+                const span = img.nextElementSibling;
+                if (span && span.tagName === 'SPAN') {
+                    if (colorNumbers) span.style.color = col;
+                    else span.style.color = '';
+                }
+            }
+        });
+    }
+
     function render() {
         // API Key UI
         const kWrap = panel.querySelector('#mdbl-sec-keys');
@@ -853,8 +911,17 @@ function getRatingColor(bands, choice, r) {
             _ygInput.addEventListener('input', () => {
                 const v = parseInt(_ygInput.value || '79', 10);
                 _labelTop.textContent = `Top tier (≥ ${isNaN(v) ? 80 : (v + 1)}%)`;
+                // Live update color when threshold changes
+                updateLiveColors();
             });
         }
+        
+        // Add Listeners for Live Color Updates
+        ['#th_red', '#th_orange', '#th_yg', '#col_red', '#col_orange', '#col_yg', '#col_mg', '#d_colorNumbers', '#d_colorIcons'].forEach(sel => {
+             const el = panel.querySelector(sel);
+             if(el) el.addEventListener('input', updateLiveColors);
+             if(el && (el.type === 'checkbox' || el.tagName === 'SELECT')) el.addEventListener('change', updateLiveColors);
+        });
 
         // Palette Previews
         function mdblUpdateSwatches() {
@@ -887,6 +954,7 @@ function getRatingColor(bands, choice, r) {
         savePrefs({});
         render();
         updateLivePreview();
+        updateLiveColors(); // Reset colors live too
         if (window.MDBL_API?.refresh) window.MDBL_API.refresh();
     });
 
@@ -899,7 +967,7 @@ function getRatingColor(bands, choice, r) {
         prefs.display.colorNumbers = panel.querySelector('#d_colorNumbers').checked;
         prefs.display.colorIcons = panel.querySelector('#d_colorIcons').checked;
         prefs.display.showPercentSymbol = panel.querySelector('#d_showPercent').checked;
-        
+
         prefs.display.posX = parseInt(panel.querySelector('#d_posX').value || '0', 10);
         prefs.display.posY = parseInt(panel.querySelector('#d_posY').value || '0', 10);
 
