@@ -1,13 +1,31 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.4.4 — Stable XY & Fixes)
+// @name         Jellyfin Ratings (v6.4.5 — Emergency Reset & Debug)
 // @namespace    https://mdblist.com
-// @version      6.4.4
-// @description  Unified ratings for Jellyfin with XY positioning, live preview, and 24h toggle.
+// @version      6.4.5
+// @description  Unified ratings for Jellyfin with XY positioning. Includes auto-reset for broken layouts.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] Initializing v6.4.4...');
+console.log('[Jellyfin Ratings] v6.4.5 loading...');
+
+/* ==========================================================================
+   EMERGENCY FIX: Sanitize Storage on Boot
+   Entfernt defekte Koordinaten aus dem Speicher, falls vorhanden.
+========================================================================== */
+try {
+    const rawKey = 'mdbl_prefs';
+    const raw = localStorage.getItem(rawKey);
+    if (raw) {
+        const p = JSON.parse(raw);
+        // Wenn Positionen ungültig sind (NaN), lösche die Einstellungen komplett
+        if (p.display && (isNaN(parseInt(p.display.posX)) || isNaN(parseInt(p.display.posY)))) {
+            console.warn('[Jellyfin Ratings] Defekte Einstellungen gefunden. Setze zurück...');
+            localStorage.removeItem(rawKey);
+        }
+    }
+} catch (e) { localStorage.removeItem('mdbl_prefs'); }
+
 
 /* ---------- Defaults ---------- */
 const DEFAULT_ENABLE_SOURCES = {
@@ -29,7 +47,6 @@ const DEFAULT_DISPLAY = {
   compactLevel:0
 };
 
-/* === Color Swatches & Helpers === */
 const COLOR_SWATCHES = {
   red:    ['#e53935','#f44336','#d32f2f','#c62828'],
   orange: ['#fb8c00','#f39c12','#ffa726','#ef6c00'],
@@ -82,13 +99,14 @@ const DISPLAY         = Object.assign({}, DEFAULT_DISPLAY,        __CFG__.displa
 const SPACING         = Object.assign({}, DEFAULT_SPACING,        __CFG__.spacing   || {});
 const RATING_PRIORITY = Object.assign({}, DEFAULT_PRIORITIES,     __CFG__.priorities|| {});
 
-// Safety Check: Ensure Positions are Valid Numbers
-if(isNaN(parseFloat(DISPLAY.posX))) DISPLAY.posX = 0;
-if(isNaN(parseFloat(DISPLAY.posY))) DISPLAY.posY = 0;
+// Force defaults if values are broken
+if(isNaN(parseInt(DISPLAY.posX))) DISPLAY.posX = 0;
+if(isNaN(parseInt(DISPLAY.posY))) DISPLAY.posY = 0;
 
 const INJ_KEYS     = (window.MDBL_KEYS||{});
 const LS_KEYS_JSON = localStorage.getItem(`${NS}keys`);
 const LS_KEYS      = LS_KEYS_JSON ? (JSON.parse(LS_KEYS_JSON)||{}) : {};
+// Key from your original upload used as fallback
 const MDBLIST_API_KEY = String(INJ_KEYS.MDBLIST || LS_KEYS.MDBLIST || 'hehfnbo9y8blfyqm1d37ikubl');
 
 /* ---------- Polyfill ---------- */
@@ -225,11 +243,16 @@ function scanLinks(){
       
       const div=document.createElement('div'); div.className='mdblist-rating-container';
       
-      // Safe parse
+      // --- DEBUG STYLE: RED BORDER ---
+      // Hilft zu sehen, ob der Container überhaupt da ist.
+      div.style.border = "2px solid red"; 
+      div.title = "DEBUG: Container loaded";
+      // -------------------------------
+
       let px = parseFloat(DISPLAY.posX); if(isNaN(px)) px=0;
       let py = parseFloat(DISPLAY.posY); if(isNaN(py)) py=0;
 
-      div.style=`display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;width:calc(100% + 6px);margin-left:-6px;margin-top:${SPACING.ratingsTopGapPx}px;padding-right:0;box-sizing:border-box;transform:translate(${px}px,${py}px);z-index:10;`;
+      div.style.cssText += `display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;width:calc(100% + 6px);margin-left:-6px;margin-top:${SPACING.ratingsTopGapPx}px;padding-right:0;box-sizing:border-box;transform:translate(${px}px,${py}px);z-index:9999;position:relative;`;
 
       Object.assign(div.dataset,{type, tmdbId, mdblFetched:'0'}); ref.insertAdjacentElement('afterend',div);
     });
@@ -301,7 +324,12 @@ function fetchRatings(tmdbId, imdbId, container, type='movie'){
     method:'GET',
     url:`https://api.mdblist.com/tmdb/${type}/${tmdbId}?apikey=${MDBLIST_API_KEY}`,
     onload:r=>{
-      if(r.status!==200) return;
+      if(r.status!==200) {
+          console.error('MDBList API Error:', r.status);
+          // Debug Text falls API failt
+          const err = document.createElement('span'); err.style.color='red'; err.textContent='[API Err]'; container.appendChild(err);
+          return;
+      }
       let d; try{ d=JSON.parse(r.responseText); }catch{ return; }
       const title=d.title||''; const slug=Util.slug(title);
 
@@ -811,7 +839,7 @@ updateAll();
       };
       _ygInput.addEventListener('input', upd);
       upd();
-    }; // <-- SEMICOLON ADDED HERE
+    };
 
     ['#col_red','#col_orange','#col_yg','#col_mg'].forEach(id=>{
       const el = panel.querySelector(id);
