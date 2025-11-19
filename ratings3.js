@@ -1,11 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.4.3 — Fixes & Live Preview)
+// @name         Jellyfin Ratings (v6.4.4 — Stable XY & Fixes)
 // @namespace    https://mdblist.com
-// @version      6.4.3
+// @version      6.4.4
 // @description  Unified ratings for Jellyfin with XY positioning, live preview, and 24h toggle.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
+
+console.log('[Jellyfin Ratings] Initializing v6.4.4...');
 
 /* ---------- Defaults ---------- */
 const DEFAULT_ENABLE_SOURCES = {
@@ -18,9 +20,9 @@ const DEFAULT_DISPLAY = {
   showPercentSymbol:true,
   colorNumbers:true,
   colorIcons:false,
-  posX: 0,               // Standard X-Verschiebung
-  posY: 0,               // Standard Y-Verschiebung
-  endsAtFormat:'24h',    // '24h' oder '12h'
+  posX: 0,
+  posY: 0,
+  endsAtFormat:'24h',
   endsAtBullet:false,
   colorBands:{ redMax:50, orangeMax:69, ygMax:79 },
   colorChoice:{ red:0, orange:2, yg:3, mg:0 },
@@ -79,6 +81,10 @@ const ENABLE_SOURCES  = Object.assign({}, DEFAULT_ENABLE_SOURCES, __CFG__.source
 const DISPLAY         = Object.assign({}, DEFAULT_DISPLAY,        __CFG__.display   || {});
 const SPACING         = Object.assign({}, DEFAULT_SPACING,        __CFG__.spacing   || {});
 const RATING_PRIORITY = Object.assign({}, DEFAULT_PRIORITIES,     __CFG__.priorities|| {});
+
+// Safety Check: Ensure Positions are Valid Numbers
+if(isNaN(parseFloat(DISPLAY.posX))) DISPLAY.posX = 0;
+if(isNaN(parseFloat(DISPLAY.posY))) DISPLAY.posY = 0;
 
 const INJ_KEYS     = (window.MDBL_KEYS||{});
 const LS_KEYS_JSON = localStorage.getItem(`${NS}keys`);
@@ -219,13 +225,11 @@ function scanLinks(){
       
       const div=document.createElement('div'); div.className='mdblist-rating-container';
       
-      // Safety check for positions
-      const px = parseFloat(DISPLAY.posX);
-      const py = parseFloat(DISPLAY.posY);
-      const safeX = isNaN(px) ? 0 : px;
-      const safeY = isNaN(py) ? 0 : py;
+      // Safe parse
+      let px = parseFloat(DISPLAY.posX); if(isNaN(px)) px=0;
+      let py = parseFloat(DISPLAY.posY); if(isNaN(py)) py=0;
 
-      div.style=`display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;width:calc(100% + 6px);margin-left:-6px;margin-top:${SPACING.ratingsTopGapPx}px;padding-right:0;box-sizing:border-box;transform: translate(${safeX}px, ${safeY}px); z-index: 10;`;
+      div.style=`display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;width:calc(100% + 6px);margin-left:-6px;margin-top:${SPACING.ratingsTopGapPx}px;padding-right:0;box-sizing:border-box;transform:translate(${px}px,${py}px);z-index:10;`;
 
       Object.assign(div.dataset,{type, tmdbId, mdblFetched:'0'}); ref.insertAdjacentElement('afterend',div);
     });
@@ -807,7 +811,8 @@ updateAll();
       };
       _ygInput.addEventListener('input', upd);
       upd();
-    }
+    }; // <-- SEMICOLON ADDED HERE
+
     ['#col_red','#col_orange','#col_yg','#col_mg'].forEach(id=>{
       const el = panel.querySelector(id);
       if(el) el.addEventListener('change', mdblUpdateSwatches);
