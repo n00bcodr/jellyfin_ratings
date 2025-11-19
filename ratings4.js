@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.6.0 — Mobile, Clickable Ends-At & Names)
+// @name         Jellyfin Ratings (v6.7.0 — Uniform UI & Clean Names)
 // @namespace    https://mdblist.com
-// @version      6.6.0
-// @description  Unified ratings. Mobile menu support. Clickable 'Ends at'. Restored original color names.
+// @version      6.7.0
+// @description  Unified ratings. Clean color names (no hex). Uniform input sizes. Mobile/Desktop layout optimized.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v6.6.0 loading...');
+console.log('[Jellyfin Ratings] v6.7.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -55,7 +55,7 @@ const SCALE_MULTIPLIER = {
     rotten_tomatoes_critic: 1, rotten_tomatoes_audience: 1
 };
 
-// --- Original Color Palettes & Names ---
+// --- Color Palettes & Clean Names ---
 const COLOR_SWATCHES = {
     red:    ['#e53935', '#f44336', '#d32f2f', '#c62828'],
     orange: ['#fb8c00', '#f39c12', '#ffa726', '#ef6c00'],
@@ -63,11 +63,12 @@ const COLOR_SWATCHES = {
     mg:     ['#43a047', '#66bb6a', '#388e3c', '#81c784']
 };
 
+// Removed Hex Codes from names
 const PALETTE_NAMES = {
-    red:    ['Alert Red (#e53935)', 'Tomato (#f44336)', 'Crimson (#d32f2f)', 'Deep Red (#c62828)'],
-    orange: ['Amber (#fb8c00)', 'Signal Orange (#f39c12)', 'Apricot (#ffa726)', 'Burnt Orange (#ef6c00)'],
-    yg:     ['Lime Leaf (#9ccc65)', 'Citrus (#c0ca33)', 'Chartreuse (#aeea00)', 'Soft Lime (#cddc39)'],
-    mg:     ['Emerald (#43a047)', 'Leaf Green (#66bb6a)', 'Forest (#388e3c)', 'Mint (#81c784)']
+    red:    ['Alert Red', 'Tomato', 'Crimson', 'Deep Red'],
+    orange: ['Amber', 'Signal Orange', 'Apricot', 'Burnt Orange'],
+    yg:     ['Lime Leaf', 'Citrus', 'Chartreuse', 'Soft Lime'],
+    mg:     ['Emerald', 'Leaf Green', 'Forest', 'Mint']
 };
 
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000;
@@ -574,11 +575,11 @@ function getRatingColor(bands, choice, r) {
     /* Common select & input styles */
     #mdbl-panel select, #mdbl-panel input.mdbl-pos-input, #mdbl-panel input.mdbl-num-input {
         padding:0 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:#121317; color:#eaeaea;
-        height:36px; box-sizing:border-box; display:inline-block;
+        height:32px; line-height: 32px; box-sizing:border-box; display:inline-block;
     }
-    #mdbl-panel .mdbl-select { width:200px; justify-self:end; }
+    #mdbl-panel .mdbl-select { width:140px; justify-self:end; }
     
-    /* FIXED: Wider inputs (75px) and smaller text for comfort */
+    /* Uniform size & styling */
     #mdbl-panel input.mdbl-pos-input { width: 75px; text-align: center; font-size: 14px; }
     #mdbl-panel input.mdbl-num-input { width: 56px; text-align: center; -moz-appearance:textfield; }
     #mdbl-panel input.mdbl-num-input::-webkit-inner-spin-button, 
@@ -608,14 +609,15 @@ function getRatingColor(bands, choice, r) {
     #mdbl-panel .mdbl-actions .mdbl-grow { flex:1; }
     #mdbl-panel .mdbl-actions .mdbl-compact { display:inline-flex; align-items:center; gap:6px; opacity:0.95; }
     
-    /* Compact Mode (Desktop) */
+    /* FIXED: Compact Mode Width increased to 460 to fit slider + text */
     #mdbl-panel[data-compact="1"] { --mdbl-right-col:44px; --mdbl-right-col-wide:220px; width:460px; }
     #mdbl-panel[data-compact="1"] header { padding:6px 12px; }
+    /* Tighter vertical spacing to prevent scroll */
     #mdbl-panel[data-compact="1"] .mdbl-section { padding:2px 12px; gap:2px; }
     #mdbl-panel[data-compact="1"] .mdbl-row, #mdbl-panel[data-compact="1"] .mdbl-source { gap:5px; padding:2px 6px; border-radius:6px; min-height: 32px; }
     #mdbl-panel[data-compact="1"] .mdbl-actions { padding:6px 10px; }
     #mdbl-panel[data-compact="1"] .mdbl-src-left img { height:16px; }
-    #mdbl-panel[data-compact="1"] select, #mdbl-panel[data-compact="1"] input.mdbl-pos-input { height: 28px; font-size: 12px; }
+    #mdbl-panel[data-compact="1"] select, #mdbl-panel[data-compact="1"] input.mdbl-pos-input { height: 28px; font-size: 12px; line-height: 28px; }
     #mdbl-panel[data-compact="1"] .mdbl-select { width: 140px; }
     #mdbl-panel[data-compact="1"] hr { margin: 4px 0; }
 
@@ -693,7 +695,6 @@ function getRatingColor(bands, choice, r) {
     (function makePanelDraggable() {
         const header = panel.querySelector('#mdbl-drag-handle'); let drag = false, sx = 0, sy = 0, sl = 0, st = 0;
         header.addEventListener('mousedown', e => {
-            // Disable drag on small screens
             if (window.innerWidth <= 600) return;
             if (e.target.id === 'mdbl-close') return;
             drag = true; const rect = panel.getBoundingClientRect();
@@ -746,7 +747,6 @@ function getRatingColor(bands, choice, r) {
 
     // --- Helper for Colors Grid ---
     function createColorBandRow(idPrefix, labelPrefix, defaultVal, colorKey) {
-        // Use restored original names
         const names = PALETTE_NAMES[colorKey] || [];
         const options = names.map((name, i) => {
             const sel = (DISPLAY.colorChoice && DISPLAY.colorChoice[colorKey] === i) ? 'selected' : '';
