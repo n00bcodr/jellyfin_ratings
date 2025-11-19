@@ -1,19 +1,19 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.5.1 — Layout & UI Polish)
+// @name         Jellyfin Ratings (v6.5.2 — Compact & Layout Fix)
 // @namespace    https://mdblist.com
-// @version      6.5.1
-// @description  Unified ratings for Jellyfin. Fixes Ends-At overlap. Improved Settings UI & Compact Mode.
+// @version      6.5.2
+// @description  Unified ratings. Fixes overlap issues. optimized Compact Mode. Wider inputs.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v6.5.1 loading...');
+console.log('[Jellyfin Ratings] v6.5.2 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
 ========================================================================== */
 
-// --- Storage Cleanup (Fix for broken coordinates) ---
+// --- Storage Cleanup ---
 try {
     const rawKey = 'mdbl_prefs';
     const raw = localStorage.getItem(rawKey);
@@ -25,15 +25,13 @@ try {
     }
 } catch (e) { localStorage.removeItem('mdbl_prefs'); }
 
-
-// --- Default Settings ---
+// --- Defaults ---
 const DEFAULT_ENABLE_SOURCES = {
     imdb: true, tmdb: true, trakt: true, letterboxd: true,
     rotten_tomatoes_critic: true, rotten_tomatoes_audience: true,
     metacritic_critic: true, metacritic_user: true,
     roger_ebert: true, anilist: true, myanimelist: true
 };
-
 const DEFAULT_DISPLAY = {
     showPercentSymbol: true,
     colorNumbers: true,
@@ -44,23 +42,18 @@ const DEFAULT_DISPLAY = {
     colorChoice: { red: 0, orange: 2, yg: 3, mg: 0 },
     compactLevel: 0
 };
-
 const DEFAULT_SPACING = { ratingsTopGapPx: 8 };
-
 const DEFAULT_PRIORITIES = {
     imdb: 1, tmdb: 2, trakt: 3, letterboxd: 4,
     rotten_tomatoes_critic: 5, rotten_tomatoes_audience: 6,
     roger_ebert: 7, metacritic_critic: 8, metacritic_user: 9,
     anilist: 10, myanimelist: 11
 };
-
 const SCALE_MULTIPLIER = {
     imdb: 10, tmdb: 1, trakt: 1, letterboxd: 20, roger_ebert: 25,
     metacritic_critic: 1, metacritic_user: 10, myanimelist: 10, anilist: 1,
     rotten_tomatoes_critic: 1, rotten_tomatoes_audience: 1
 };
-
-// --- Colors ---
 const COLOR_SWATCHES = {
     red:    ['#e53935', '#f44336', '#d32f2f', '#c62828'],
     orange: ['#fb8c00', '#f39c12', '#ffa726', '#ef6c00'],
@@ -68,47 +61,34 @@ const COLOR_SWATCHES = {
     mg:     ['#43a047', '#66bb6a', '#388e3c', '#81c784']
 };
 
-// --- Assets ---
-const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 Days
+const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000;
 const NS = 'mdbl_';
 const ICON_BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
 const LOGO = {
-    imdb: `${ICON_BASE}/IMDb.png`,
-    tmdb: `${ICON_BASE}/TMDB.png`,
-    trakt: `${ICON_BASE}/Trakt.png`,
-    letterboxd: `${ICON_BASE}/letterboxd.png`,
-    anilist: `${ICON_BASE}/anilist.png`,
-    myanimelist: `${ICON_BASE}/mal.png`,
-    roger: `${ICON_BASE}/Roger_Ebert.png`,
-    tomatoes: `${ICON_BASE}/Rotten_Tomatoes.png`,
-    audience: `${ICON_BASE}/Rotten_Tomatoes_positive_audience.png`,
-    metacritic: `${ICON_BASE}/Metacritic.png`,
+    imdb: `${ICON_BASE}/IMDb.png`, tmdb: `${ICON_BASE}/TMDB.png`, trakt: `${ICON_BASE}/Trakt.png`,
+    letterboxd: `${ICON_BASE}/letterboxd.png`, anilist: `${ICON_BASE}/anilist.png`, myanimelist: `${ICON_BASE}/mal.png`,
+    roger: `${ICON_BASE}/Roger_Ebert.png`, tomatoes: `${ICON_BASE}/Rotten_Tomatoes.png`,
+    audience: `${ICON_BASE}/Rotten_Tomatoes_positive_audience.png`, metacritic: `${ICON_BASE}/Metacritic.png`,
     metacritic_user: `${ICON_BASE}/mus2.png`,
 };
 
-// --- Merge User Config ---
 const __CFG__ = (typeof window !== 'undefined' && window.MDBL_CFG) ? window.MDBL_CFG : {};
 const ENABLE_SOURCES = Object.assign({}, DEFAULT_ENABLE_SOURCES, __CFG__.sources || {});
 const DISPLAY = Object.assign({}, DEFAULT_DISPLAY, __CFG__.display || {});
 const SPACING = Object.assign({}, DEFAULT_SPACING, __CFG__.spacing || {});
 const RATING_PRIORITY = Object.assign({}, DEFAULT_PRIORITIES, __CFG__.priorities || {});
 
-// Validate Positions
 if (isNaN(parseFloat(DISPLAY.posX))) DISPLAY.posX = 0;
 if (isNaN(parseFloat(DISPLAY.posY))) DISPLAY.posY = 0;
 
-// --- API Keys ---
 const INJ_KEYS = (window.MDBL_KEYS || {});
 const LS_KEYS_JSON = localStorage.getItem(`${NS}keys`);
 const LS_KEYS = LS_KEYS_JSON ? (JSON.parse(LS_KEYS_JSON) || {}) : {};
 const MDBLIST_API_KEY = String(INJ_KEYS.MDBLIST || LS_KEYS.MDBLIST || 'hehfnbo9y8blfyqm1d37ikubl');
 
-
 /* ==========================================================================
-   2. UTILITIES & POLYFILLS
+   2. UTILITIES
 ========================================================================== */
-
-// GM_xmlhttpRequest Polyfill
 if (typeof GM_xmlhttpRequest === 'undefined') {
     const PROXIES = ['https://api.allorigins.win/raw?url=', 'https://api.codetabs.com/v1/proxy?quest='];
     const DIRECT = ['api.mdblist.com', 'graphql.anilist.co', 'query.wikidata.org', 'api.themoviedb.org'];
@@ -136,7 +116,6 @@ const Util = {
     slug: t => (t || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 };
 
-// Color Helper
 function getRatingColor(bands, choice, r) {
     bands = bands || { redMax: 50, orangeMax: 69, ygMax: 79 };
     choice = choice || { red: 0, orange: 0, yg: 0, mg: 0 };
@@ -149,22 +128,19 @@ function getRatingColor(bands, choice, r) {
     return COLOR_SWATCHES[band][i];
 }
 
-// Inject Styles
 (function ensureStyleTag() {
     if (document.getElementById('mdblist-styles')) return;
     const style = document.createElement('style');
     style.id = 'mdblist-styles';
     style.textContent = `
     .mdblist-rating-container { pointer-events: auto; }
-    /* Fix overlap issues with Jellyfin's own containers */
-    .itemMiscInfo, .mainDetailRibbon, .detailRibbon { 
-        overflow: visible !important; 
-        contain: none !important; 
-    }
+    /* Prevent clipping */
+    .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; }
+    /* Fix for overlapping Ends At */
+    #customEndsAt { font-size: inherit; opacity: 0.7; }
   `;
     document.head.appendChild(style);
 })();
-
 
 /* ==========================================================================
    3. CORE LOGIC
@@ -173,10 +149,8 @@ function getRatingColor(bands, choice, r) {
     'use strict';
     let currentImdbId = null;
 
-    // --- Helper: Find Primary Row ---
     const findPrimaryRow = () => document.querySelector('.itemMiscInfo.itemMiscInfo-primary') || document.querySelector('.itemMiscInfo-primary') || document.querySelector('.itemMiscInfo');
 
-    // --- Helper: Runtime Parser ---
     function parseRuntimeToMinutes(text) {
         if (!text) return 0;
         const m = text.match(/(?:(\d+)\s*h(?:ours?)?\s*)?(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i);
@@ -199,7 +173,6 @@ function getRatingColor(bands, choice, r) {
         return mins > 0 ? { node: primary, minutes: mins } : { node: null, minutes: 0 };
     }
 
-    // --- FIX: Hide Native "Ends at" ---
     function hideNativeEndsAt() {
         const candidates = document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div');
         candidates.forEach(el => {
@@ -211,39 +184,38 @@ function getRatingColor(bands, choice, r) {
         });
     }
 
-    // --- FEATURE: Restore Custom "Ends at" ---
     function ensureEndsAtInline() {
         const primary = findPrimaryRow(); if (!primary) return;
+        const { node: runtimeNode, minutes } = findRuntimeNode(primary);
         
-        // Try to find existing time or add it
-        let span = primary.querySelector('#customEndsAt');
-        
-        const { minutes } = findRuntimeNode(primary); 
-        if (!minutes) {
-            // Safety cleanup if no runtime found
-            if(span) span.remove(); 
+        // Remove existing if runtime gone (rare)
+        if (!minutes && primary.querySelector('#customEndsAt')) {
+            primary.querySelector('#customEndsAt').remove();
             return;
         }
+        if (!minutes) return;
 
         const end = new Date(Date.now() + minutes * 60000);
         const timeStr = `${Util.pad(end.getHours())}:${Util.pad(end.getMinutes())}`;
         const content = `Ends at ${timeStr}`;
 
+        let span = primary.querySelector('#customEndsAt');
         if (!span) {
             span = document.createElement('span');
             span.id = 'customEndsAt';
-            // Using flex/inline-flex behavior on parent usually, so we style this to sit nicely
+            // FORCE inline-flex behavior to stay in flow
             Object.assign(span.style, {
                 marginLeft: '12px', 
-                color: 'inherit', 
-                opacity: '0.8',
-                fontSize: 'inherit', 
-                fontWeight: 'inherit',
-                whiteSpace: 'nowrap', 
-                display: 'inline-block',
-                verticalAlign: 'middle' // Crucial for alignment
+                display: 'inline', // Inline keeps it on the same line text-wise
+                verticalAlign: 'baseline'
             });
-            primary.appendChild(span);
+            
+            // FIX: Insert immediately after the runtime node to prevent wrapping issues
+            if (runtimeNode && runtimeNode.nextSibling) {
+                runtimeNode.parentNode.insertBefore(span, runtimeNode.nextSibling);
+            } else {
+                primary.appendChild(span);
+            }
         }
         if (span.textContent !== content) span.textContent = content;
     }
@@ -254,9 +226,7 @@ function getRatingColor(bands, choice, r) {
         });
     }
 
-    // --- SCANNER ---
     function scanLinks() {
-        // Scan for IMDb links to detect page change
         document.querySelectorAll('a.emby-button[href*="imdb.com/title/"]').forEach(a => {
             if (a.dataset.mdblSeen === '1') return; a.dataset.mdblSeen = '1';
             const m = a.href.match(/imdb\.com\/title\/(tt\d+)/); if (!m) return;
@@ -267,7 +237,6 @@ function getRatingColor(bands, choice, r) {
             }
         });
 
-        // Scan for TMDb links to inject container
         [...document.querySelectorAll('a.emby-button[href*="themoviedb.org/"]')].forEach(a => {
             if (a.dataset.mdblProc === '1') return;
             const m = a.href.match(/themoviedb\.org\/(movie|tv)\/(\d+)/); if (!m) return;
@@ -284,7 +253,6 @@ function getRatingColor(bands, choice, r) {
                 const div = document.createElement('div');
                 div.className = 'mdblist-rating-container';
 
-                // Positioning Logic
                 let px = parseFloat(DISPLAY.posX); if (isNaN(px)) px = 0;
                 let py = parseFloat(DISPLAY.posY); if (isNaN(py)) py = 0;
 
@@ -308,7 +276,6 @@ function getRatingColor(bands, choice, r) {
         });
     }
 
-    // --- FETCH & RENDER ---
     function appendRating(container, logo, val, title, key, link, count, kind) {
         if (!Util.ok(val)) return;
         const n = Util.normalize(val, key); if (!Util.ok(n)) return;
@@ -348,13 +315,11 @@ function getRatingColor(bands, choice, r) {
         wrap.append(a, s);
         container.append(wrap);
         
-        // Sort based on priority
         [...container.children]
             .sort((a, b) => (RATING_PRIORITY[a.dataset.source] ?? 999) - (RATING_PRIORITY[b.dataset.source] ?? 999))
             .forEach(el => container.appendChild(el));
     }
 
-    // Wikidata for RT deep links
     function fetchRTDirectLink(imdbId, cb) {
         const key = `${NS}rturl_${imdbId}`;
         const cache = localStorage.getItem(key);
@@ -439,7 +404,6 @@ function getRatingColor(bands, choice, r) {
         });
     }
 
-    // --- FALLBACKS ---
     function fetchAniList(imdbId, container) {
         const q = `SELECT ?anilist WHERE { ?item wdt:P345 "${imdbId}" . ?item wdt:P8729 ?anilist . } LIMIT 1`;
         GM_xmlhttpRequest({
@@ -517,7 +481,6 @@ function getRatingColor(bands, choice, r) {
         }
     }
 
-    // --- Loop ---
     function updateAll() {
         try {
             hideNativeEndsAt();
@@ -574,7 +537,7 @@ function getRatingColor(bands, choice, r) {
     }
     const saved = loadPrefs(); if (saved && Object.keys(saved).length) applyPrefs(saved);
 
-    // --- Consolidated CSS (Everything in one place) ---
+    // --- CSS ---
     const css = `
     :root { --mdbl-right-col: 48px; --mdbl-right-col-wide: 200px; }
     #mdbl-panel { position:fixed; right:16px; bottom:70px; width:480px; max-height:90vh; overflow:auto; border-radius:14px;
@@ -601,8 +564,8 @@ function getRatingColor(bands, choice, r) {
     }
     #mdbl-panel .mdbl-select { width:200px; justify-self:end; }
     
-    /* FIXED: Wider inputs for positions to fit 4 digits comfortably */
-    #mdbl-panel input.mdbl-pos-input { width: 60px; text-align: center; font-size: 13px; }
+    /* FIXED: Wider inputs (75px) and smaller text for comfort */
+    #mdbl-panel input.mdbl-pos-input { width: 75px; text-align: center; font-size: 14px; }
     #mdbl-panel input.mdbl-num-input { width: 56px; text-align: center; -moz-appearance:textfield; }
     #mdbl-panel input.mdbl-num-input::-webkit-inner-spin-button, 
     #mdbl-panel input.mdbl-num-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -631,14 +594,15 @@ function getRatingColor(bands, choice, r) {
     #mdbl-panel .mdbl-actions .mdbl-grow { flex:1; }
     #mdbl-panel .mdbl-actions .mdbl-compact { display:inline-flex; align-items:center; gap:6px; opacity:0.95; }
     
-    /* Compact Mode overrides (FIXED: Wider width, smaller padding to prevent scrolling) */
-    #mdbl-panel[data-compact="1"] { --mdbl-right-col:44px; --mdbl-right-col-wide:180px; width:480px; }
+    /* FIXED: Compact Mode Width reduced from 480 to 360 to fit better */
+    #mdbl-panel[data-compact="1"] { --mdbl-right-col:44px; --mdbl-right-col-wide:160px; width:360px; }
     #mdbl-panel[data-compact="1"] header { padding:6px 12px; }
-    #mdbl-panel[data-compact="1"] .mdbl-section { padding:6px 12px; gap:5px; }
-    #mdbl-panel[data-compact="1"] .mdbl-row, #mdbl-panel[data-compact="1"] .mdbl-source { gap:5px; padding:4px 6px; border-radius:8px; min-height: 40px; }
+    #mdbl-panel[data-compact="1"] .mdbl-section { padding:4px 12px; gap:4px; }
+    #mdbl-panel[data-compact="1"] .mdbl-row, #mdbl-panel[data-compact="1"] .mdbl-source { gap:5px; padding:3px 6px; border-radius:6px; min-height: 36px; }
     #mdbl-panel[data-compact="1"] .mdbl-actions { padding:6px 10px; }
     #mdbl-panel[data-compact="1"] .mdbl-src-left img { height:16px; }
-    #mdbl-panel[data-compact="1"] select, #mdbl-panel[data-compact="1"] input.mdbl-pos-input { height: 32px; }
+    #mdbl-panel[data-compact="1"] select, #mdbl-panel[data-compact="1"] input.mdbl-pos-input { height: 30px; font-size: 12px; }
+    #mdbl-panel[data-compact="1"] .mdbl-select { width: 140px; }
     `;
 
     if (!document.getElementById('mdbl-settings-css')) {
