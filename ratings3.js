@@ -1,19 +1,23 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v8.4.0 — Tooltips & Metacritic Fix)
+// @name         Jellyfin Ratings (v8.5.0 — Zen Browser Overlay)
 // @namespace    https://mdblist.com
-// @version      8.4.0
-// @description  Unified ratings. Unified Tooltips (Name - Count Type). Metacritic User link to overview. Stable Base.
+// @version      8.5.0
+// @description  Unified ratings. Zen Browser Support (Auto-Alt-Click for Overlay). Unified Tooltips. Metacritic Fix.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v8.4.0 loading...');
+console.log('[Jellyfin Ratings] v8.5.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
 ========================================================================== */
 
 const NS = 'mdbl_';
+
+// Detect Zen Browser
+const IS_ZEN = /Zen/i.test(navigator.userAgent);
+if (IS_ZEN) console.log('[Jellyfin Ratings] Zen Browser detected - Overlay mode active');
 
 const DEFAULTS = {
     sources: {
@@ -212,22 +216,56 @@ updateGlobalStyles();
    3. MAIN LOGIC
 ========================================================================== */
 
-// Link Fixer
+// Zen Browser Overlay Logic
+document.addEventListener('click', (e) => {
+    // 1. Handle Settings Open
+    if (e.target.id === 'customEndsAt') {
+        e.preventDefault(); e.stopPropagation();
+        if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
+        return;
+    }
+
+    // 2. Handle Rating Links
+    const link = e.target.closest('a.mdbl-rating-item');
+    if (link) {
+        // Check if clicked on SPAN (Number) -> Open Settings
+        if (e.target.tagName === 'SPAN') {
+            e.preventDefault(); e.stopPropagation();
+            if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
+            return;
+        }
+
+        // 3. Zen Browser Logic: Force Alt+Click for Overlay
+        // Only if Zen detected AND no modifiers held (standard left click)
+        if (IS_ZEN && !e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+            // We must prevent default to stop standard navigation
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Create synthetic click with ALT key
+            const evt = new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                altKey: true, // FORCE ALT
+                ctrlKey: false,
+                shiftKey: false,
+                metaKey: false
+            });
+            
+            // Dispatch on the same target
+            link.dispatchEvent(evt);
+            console.log('[Jellyfin Ratings] Dispatched synthetic Alt+Click for Zen Overlay');
+        }
+    }
+}, true); // Capture phase
+
 function fixUrl(url, domain) {
     if (!url) return null;
     if (url.startsWith('http')) return url;
     const clean = url.startsWith('/') ? url.substring(1) : url;
     return `https://${domain}/${clean}`;
 }
-
-const localSlug = t => (t || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-
-document.addEventListener('click', (e) => {
-    if (e.target.id === 'customEndsAt') {
-        e.preventDefault(); e.stopPropagation();
-        if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
-    }
-}, true);
 
 function updateEndsAt() {
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
@@ -283,7 +321,6 @@ function createRatingHtml(key, val, link, count, title, kind) {
     const n = parseFloat(val) * (SCALE[key] || 1);
     const r = Math.round(n);
     
-    // Tooltip text
     const tooltip = (count && count > 0) 
         ? `${title} — ${count.toLocaleString()} ${kind}`
         : title;
@@ -293,7 +330,7 @@ function createRatingHtml(key, val, link, count, title, kind) {
     return `
         <a href="${safeLink}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}" title="${tooltip}">
             <img src="${LOGO[key]}" alt="${title}">
-            <span>${CFG.display.showPercentSymbol ? r+'%' : r}</span>
+            <span title="Settings">${CFG.display.showPercentSymbol ? r+'%' : r}</span>
         </a>
     `;
 }
@@ -336,19 +373,18 @@ function renderRatings(container, data, pageImdbId, type) {
                 add('letterboxd', v, lnk, c, 'Letterboxd', 'Ratings');
             }
             else if (s === 'tomatoes' || s.includes('rotten_tomatoes')) {
-                add('rotten_tomatoes_critic', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'Rotten Tomatoes', 'Reviews');
+                add('rotten_tomatoes_critic', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'RT Critic', 'Reviews');
             }
             else if (s.includes('popcorn') || s.includes('audience')) {
-                add('rotten_tomatoes_audience', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'Rotten Tomatoes', 'Ratings');
+                add('rotten_tomatoes_audience', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'RT Audience', 'Ratings');
             }
             else if (s.includes('metacritic') && !s.includes('user')) {
-                const slug = localSlug(data.title);
+                const slug = data.title ? data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') : '';
                 const lnk = slug ? `https://www.metacritic.com/${metaType}/${slug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(data.title||'')}/results`;
                 add('metacritic_critic', v, lnk, c, 'Metacritic', 'Reviews');
             }
             else if (s.includes('metacritic') && s.includes('user')) {
-                // LINK FIXED: Go to main page, not user-reviews directly
-                const slug = localSlug(data.title);
+                const slug = data.title ? data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') : '';
                 const lnk = slug ? `https://www.metacritic.com/${metaType}/${slug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(data.title||'')}/results`;
                 add('metacritic_user', v, lnk, c, 'Metacritic', 'Ratings');
             }
