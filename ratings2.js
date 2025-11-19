@@ -13,7 +13,7 @@ console.log('[Jellyfin Ratings] v7.0.0 loading...');
    1. CONFIGURATION & CONSTANTS
 ========================================================================== */
 
-// --- Storage Cleanup ---
+// --- Storage Cleanup (Legacy Fixes) ---
 try {
     const rawKey = 'mdbl_prefs';
     const raw = localStorage.getItem(rawKey);
@@ -55,6 +55,7 @@ const SCALE_MULTIPLIER = {
     rotten_tomatoes_critic: 1, rotten_tomatoes_audience: 1
 };
 
+// --- Colors ---
 const COLOR_SWATCHES = {
     red:    ['#e53935', '#f44336', '#d32f2f', '#c62828'],
     orange: ['#fb8c00', '#f39c12', '#ffa726', '#ef6c00'],
@@ -241,6 +242,7 @@ function getRatingColor(bands, choice, r) {
     }
 
     function scanLinks() {
+        // Detect page changes
         document.querySelectorAll('a.emby-button[href*="imdb.com/title/"]').forEach(a => {
             if (a.dataset.mdblSeen === '1') return; a.dataset.mdblSeen = '1';
             const m = a.href.match(/imdb\.com\/title\/(tt\d+)/); if (!m) return;
@@ -251,6 +253,7 @@ function getRatingColor(bands, choice, r) {
             }
         });
 
+        // Inject Container
         [...document.querySelectorAll('a.emby-button[href*="themoviedb.org/"]')].forEach(a => {
             if (a.dataset.mdblProc === '1') return;
             const m = a.href.match(/themoviedb\.org\/(movie|tv)\/(\d+)/); if (!m) return;
@@ -269,7 +272,7 @@ function getRatingColor(bands, choice, r) {
             let px = parseFloat(DISPLAY.posX); if (isNaN(px)) px = 0;
             let py = parseFloat(DISPLAY.posY); if (isNaN(py)) py = 0;
             
-            // Auto-Right Alignment
+            // Auto-Right Alignment (Responsive)
             const justify = 'flex-end';
 
             div.style.cssText += `display:flex;flex-wrap:wrap;align-items:center;justify-content:${justify};width:100%;margin-top:${SPACING.ratingsTopGapPx}px;box-sizing:border-box;transform:translate(${px}px,${py}px);z-index:99999;position:relative;pointer-events:auto;flex-shrink:0;`;
@@ -313,7 +316,7 @@ function getRatingColor(bands, choice, r) {
         img.style = 'height:1.3em;vertical-align:middle;';
         const labelCount = (typeof count === 'number' && isFinite(count)) ? `${count.toLocaleString()} ${kind || (key === 'rotten_tomatoes_critic' ? 'Reviews' : 'Votes')}` : '';
         img.title = labelCount ? `${title} — ${labelCount}` : title;
-        // Add data-score attribute for live color updates
+        // Add data-score for Live Preview
         img.dataset.score = r; 
 
         a.appendChild(img);
@@ -322,11 +325,10 @@ function getRatingColor(bands, choice, r) {
         s.textContent = disp;
         s.title = 'Open settings';
         s.style = 'font-size:1em;vertical-align:middle;cursor:pointer;';
-        // Add data-score here too
         s.dataset.score = r;
         s.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS(); });
 
-        // Apply initial color
+        // Initial Color
         const col = getRatingColor(DISPLAY.colorBands, DISPLAY.colorChoice, r);
         if (DISPLAY.colorNumbers) s.style.color = col;
         if (DISPLAY.colorIcons) img.style.filter = `drop-shadow(0 0 3px ${col})`;
@@ -359,7 +361,7 @@ function getRatingColor(bands, choice, r) {
         });
     }
 
-    // --- Caching & Fetch Logic ---
+    // --- Data Processing (Separated for Caching) ---
     function processAndAppend(d, container, imdbId) {
         const title = d.title || '';
         const slug = Util.slug(title);
@@ -418,14 +420,13 @@ function getRatingColor(bands, choice, r) {
     }
 
     function fetchRatings(tmdbId, imdbId, container, type = 'movie') {
-        // Cache Check
+        // Cache Check (24 Hours)
         const cacheKey = `${NS}cache_ratings_${tmdbId}`;
         try {
             const cached = localStorage.getItem(cacheKey);
             if (cached) {
                 const c = JSON.parse(cached);
                 if (Date.now() - c.ts < CACHE_DURATION_API) {
-                    // Use Cached Data
                     processAndAppend(c.data, container, imdbId);
                     return;
                 }
@@ -580,7 +581,7 @@ function getRatingColor(bands, choice, r) {
     }
     const saved = loadPrefs(); if (saved && Object.keys(saved).length) applyPrefs(saved);
 
-    // --- Consolidated CSS (Everything in one place) ---
+    // --- Consolidated CSS ---
     const css = `
     :root { --mdbl-right-col: 48px; --mdbl-right-col-wide: 200px; }
     #mdbl-panel { position:fixed; right:16px; bottom:70px; width:480px; max-height:90vh; overflow:auto; border-radius:14px;
@@ -640,7 +641,6 @@ function getRatingColor(bands, choice, r) {
     /* FIXED: Compact Mode Width increased to 460 to fit slider + text */
     #mdbl-panel[data-compact="1"] { --mdbl-right-col:44px; --mdbl-right-col-wide:220px; width:460px; }
     #mdbl-panel[data-compact="1"] header { padding:6px 12px; }
-    /* Tighter vertical spacing to prevent scroll */
     #mdbl-panel[data-compact="1"] .mdbl-section { padding:2px 12px; gap:2px; }
     #mdbl-panel[data-compact="1"] .mdbl-row, #mdbl-panel[data-compact="1"] .mdbl-source { gap:5px; padding:2px 6px; border-radius:6px; min-height: 32px; }
     #mdbl-panel[data-compact="1"] .mdbl-actions { padding:6px 10px; }
@@ -657,14 +657,12 @@ function getRatingColor(bands, choice, r) {
             right: 2% !important;
             bottom: 10px !important;
             top: auto !important;
-            transform: none !important; /* Disable JS drag positioning */
+            transform: none !important;
             max-height: 80vh;
             --mdbl-right-col: 40px;
             --mdbl-right-col-wide: 140px;
         }
-        /* Disable dragging on mobile */
         #mdbl-panel header { cursor: default; }
-        /* Make rows slightly smaller on mobile */
         #mdbl-panel .mdbl-row, #mdbl-panel .mdbl-source { min-height: 42px; padding: 4px 8px; }
         #mdbl-panel .mdbl-select { width: 140px; }
     }
