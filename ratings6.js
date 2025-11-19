@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.4.6 — Clean UI & Ext. Range)
+// @name         Jellyfin Ratings (v6.4.7 — Max Range 1500px)
 // @namespace    https://mdblist.com
-// @version      6.4.6
-// @description  Unified ratings for Jellyfin. Removed parental/24h toggle logic. Ext. range +/- 1000px. Styling fixes.
+// @version      6.4.7
+// @description  Unified ratings for Jellyfin. Ratings only (no ends-at/parental logic). Range +/- 1500px.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v6.4.6 loading...');
+console.log('[Jellyfin Ratings] v6.4.7 loading...');
 
 /* ==========================================================================
    EMERGENCY FIX: Sanitize Storage
@@ -36,7 +36,6 @@ const DEFAULT_DISPLAY = {
   colorIcons:false,
   posX: 0,
   posY: 0,
-  // endsAtFormat entfernt aus UI, hardcoded 24h im Code
   colorBands:{ redMax:50, orangeMax:69, ygMax:79 },
   colorChoice:{ red:0, orange:2, yg:3, mg:0 },
   compactLevel:0
@@ -148,49 +147,6 @@ const Util = {
 'use strict';
 
 let currentImdbId=null;
-
-function removeBuiltInEndsAt(){
-  document.querySelectorAll('.itemMiscInfo-secondary').forEach(r=>{
-    if (/\bends\s+at\b/i.test(r.textContent||'')) r.remove();
-  });
-  const ours=document.getElementById('customEndsAt');
-  document.querySelectorAll('.itemMiscInfo span, .itemMiscInfo div').forEach(el=>{
-    if (el===ours || (ours && ours.contains(el))) return;
-    if (/\bends\s+at\b/i.test((el.textContent||''))) el.remove();
-  });
-}
-
-const findPrimaryRow=()=>document.querySelector('.itemMiscInfo.itemMiscInfo-primary')||document.querySelector('.itemMiscInfo-primary')||document.querySelector('.itemMiscInfo');
-
-function parseRuntimeToMinutes(text){
-  if(!text) return 0;
-  const m=text.match(/(?:(\d+)\s*h(?:ours?)?\s*)?(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i);
-  if(!m) return 0; const h=parseInt(m[1]||'0',10), min=parseInt(m[2]||'0',10);
-  if(h===0&&min===0){ const only=text.match(/(\d+)\s*m(?:in(?:utes?)?)?/i); return only?parseInt(only[1],10):0; }
-  return h*60+min;
-}
-function findRuntimeNode(primary){
-  for (const el of primary.querySelectorAll('.mediaInfoItem, .mediaInfoText, span, div')){
-    const mins=parseRuntimeToMinutes((el.textContent||'').trim()); if (mins>0) return {node:el, minutes:mins};
-  }
-  const mins=parseRuntimeToMinutes((primary.textContent||'').trim());
-  return mins>0?{node:primary, minutes:mins}:{node:null, minutes:0};
-}
-function ensureEndsAtInline(){
-  const primary=findPrimaryRow(); if(!primary) return;
-  const {node,minutes}=findRuntimeNode(primary); if(!node||!minutes) return;
-  const end=new Date(Date.now()+minutes*60000);
-  // Forced 24h format
-  const timeStr=`${Util.pad(end.getHours())}:${Util.pad(end.getMinutes())}`;
-  const content=`Ends at ${timeStr}`;
-  let span=primary.querySelector('#customEndsAt');
-  if(!span){
-    span=document.createElement('span'); span.id='customEndsAt';
-    Object.assign(span.style,{marginLeft:'6px',color:'inherit',opacity:'1',fontSize:'inherit',fontWeight:'inherit',whiteSpace:'nowrap',display:'inline'});
-    (node.nextSibling)?node.parentNode.insertBefore(span,node.nextSibling):node.parentNode.appendChild(span);
-  }
-  span.textContent=content;
-}
 
 function hideDefaultRatingsOnce(){
   document.querySelectorAll('.itemMiscInfo.itemMiscInfo-primary').forEach(box=>{
@@ -439,10 +395,7 @@ function fetchRT_HTMLFallback(imdbId, container){
 
 function updateAll(){
   try{
-    removeBuiltInEndsAt();
-    // ensureInlineBadge(); <-- REMOVED (User Request)
-    ensureEndsAtInline();
-    removeBuiltInEndsAt();
+    hideDefaultRatingsOnce();
     scanLinks();
     updateRatings();
   }catch(e){ console.error('Ratings script error:', e); }
@@ -715,7 +668,7 @@ updateAll();
     enableDnD(sList);
 
     const dWrap=panel.querySelector('#mdbl-sec-display');
-    // --- Updated UI: inputs now use class mdbl-pos-input for consistent styling ---
+    // --- Updated UI: Range increased to 1500 ---
     dWrap.innerHTML=`
       <div class="mdbl-subtle">Display</div>
       <div class="mdbl-row"><span>Color numbers</span><input type="checkbox" id="d_colorNumbers" ${DISPLAY.colorNumbers?'checked':''}></div>
@@ -725,14 +678,14 @@ updateAll();
       <div class="mdbl-row wide">
         <span>Position X (px)</span>
         <div class="grid-right" style="flex:1; display:flex; justify-content:flex-end; align-items:center; gap:8px;">
-          <input type="range" id="d_posX_range" min="-1000" max="1000" value="${DISPLAY.posX||0}" style="flex:1; cursor:pointer;">
+          <input type="range" id="d_posX_range" min="-1500" max="1500" value="${DISPLAY.posX||0}" style="flex:1; cursor:pointer;">
           <input type="number" id="d_posX" value="${DISPLAY.posX||0}" class="mdbl-pos-input">
         </div>
       </div>
       <div class="mdbl-row wide">
         <span>Position Y (px)</span>
         <div class="grid-right" style="flex:1; display:flex; justify-content:flex-end; align-items:center; gap:8px;">
-          <input type="range" id="d_posY_range" min="-1000" max="1000" value="${DISPLAY.posY||0}" style="flex:1; cursor:pointer;">
+          <input type="range" id="d_posY_range" min="-1500" max="1500" value="${DISPLAY.posY||0}" style="flex:1; cursor:pointer;">
           <input type="number" id="d_posY" value="${DISPLAY.posY||0}" class="mdbl-pos-input">
         </div>
       </div>
@@ -861,8 +814,6 @@ updateAll();
       yg: +(panel.querySelector('#col_yg')?.value||0),
       mg: +(panel.querySelector('#col_mg')?.value||0)
     };
-
-    // endsAtFormat hardcoded removed from UI logic saving
 
     savePrefs(prefs); applyPrefs(prefs);
     const injKey=getInjectorKey(); const keyInput=panel.querySelector('#mdbl-key-mdb');
