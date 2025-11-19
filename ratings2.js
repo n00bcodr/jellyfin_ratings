@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v7.9.1 — Absolute Links & Theme Fix)
+// @name         Jellyfin Ratings (v8.0.0 — Link Enforcer & Debug)
 // @namespace    https://mdblist.com
-// @version      7.9.1
-// @description  Unified ratings. Forces absolute URLs for all providers. Robust Theme Color extraction. Fixes menu closing.
+// @version      8.0.0
+// @description  Unified ratings. Forces external links using page context ID if API fails. Theme Sync. Live Preview. Added Separator.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v7.9.1 loading...');
+console.log('[Jellyfin Ratings] v8.0.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -87,7 +87,7 @@ const LABEL = {
 };
 
 let CFG = loadConfig();
-let currentImdbId = null;
+let currentImdbId = null; // This is our global fallback ID found on page
 
 function loadConfig() {
     try {
@@ -149,6 +149,7 @@ function updateGlobalStyles() {
             text-decoration: none;
             transition: transform 0.2s ease;
             cursor: pointer;
+            color: inherit;
         }
         .mdbl-rating-item:hover {
             transform: scale(1.15) rotate(3deg);
@@ -211,10 +212,10 @@ updateGlobalStyles();
    3. MAIN LOGIC
 ========================================================================== */
 
-// Helper to fix relative URLs from API
 function fixUrl(url, domain) {
     if (!url) return null;
     if (url.startsWith('http')) return url;
+    // Force https if missing
     return `https://${domain}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
@@ -279,24 +280,32 @@ function createRatingHtml(key, val, link, count, title) {
     const n = parseFloat(val) * (SCALE[key] || 1);
     const r = Math.round(n);
     
+    // Ensure we never have empty links
+    const finalLink = (link && link !== '#' && !link.startsWith('http://192')) ? link : '#';
+    
     return `
-        <a href="${link || '#'}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}">
+        <a href="${finalLink}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}">
             <img src="${LOGO[key]}" alt="${title}" title="${title} ${count ? '('+count+')' : ''}">
             <span title="${title}">${CFG.display.showPercentSymbol ? r+'%' : r}</span>
         </a>
     `;
 }
 
-function renderRatings(container, data, imdbId, type) {
+function renderRatings(container, data, pageImdbId, type) {
     let html = '';
     const add = (k, v, lnk, cnt, tit) => html += createRatingHtml(k, v, lnk, cnt, tit);
     
+    // 1. Try to get IDs from API object
+    // 2. Fallback to pageImdbId we found during scan (MOST RELIABLE for IMDB)
     const ids = {
-        imdb: data.imdbid || data.imdb_id || imdbId,
-        tmdb: data.id || data.tmdbid || data.tmdb_id || container.dataset.tmdbId,
-        trakt: data.traktid || data.trakt_id,
+        imdb: data.imdbid || pageImdbId,
+        tmdb: data.id || data.tmdbid || container.dataset.tmdbId,
+        trakt: data.traktid,
         slug: data.slug || data.ids?.slug
     };
+    
+    console.log('[Ratings Debug] IDs:', ids, 'Page IMDb:', pageImdbId); // Debug Log
+
     const traktType = type === 'show' ? 'shows' : 'movies';
     const metaType = type === 'show' ? 'tv' : 'movie';
 
@@ -305,19 +314,29 @@ function renderRatings(container, data, imdbId, type) {
             const s = (r.source || '').toLowerCase();
             const v = r.value;
             const c = r.votes || r.count;
-            const apiLink = r.url;
+            const apiLink = r.url; // Link directly from API if available
 
             if (s.includes('imdb')) {
-                add('imdb', v, fixUrl(apiLink, 'imdb.com') || `https://www.imdb.com/title/${ids.imdb}/`, c, 'IMDb');
+                // Construct IMDB link manually if API link is missing/relative
+                let lnk = apiLink;
+                if (!lnk || !lnk.startsWith('http')) lnk = `https://www.imdb.com/title/${ids.imdb}/`;
+                add('imdb', v, lnk, c, 'IMDb');
             } 
             else if (s.includes('tmdb')) {
-                add('tmdb', v, fixUrl(apiLink, 'themoviedb.org') || `https://www.themoviedb.org/${type}/${ids.tmdb}`, c, 'TMDb');
+                let lnk = apiLink;
+                if (!lnk || !lnk.startsWith('http')) lnk = `https://www.themoviedb.org/${type}/${ids.tmdb}`;
+                add('tmdb', v, lnk, c, 'TMDb');
             }
             else if (s.includes('trakt')) {
-                add('trakt', v, fixUrl(apiLink, 'trakt.tv') || `https://trakt.tv/${traktType}/${ids.trakt}`, c, 'Trakt');
+                let lnk = apiLink;
+                if (!lnk || !lnk.startsWith('http')) lnk = ids.trakt ? `https://trakt.tv/${traktType}/${ids.trakt}` : '#';
+                add('trakt', v, lnk, c, 'Trakt');
             }
             else if (s.includes('letterboxd')) {
-                add('letterboxd', v, fixUrl(apiLink, 'letterboxd.com') || `https://letterboxd.com/imdb/${ids.imdb}/`, c, 'Letterboxd');
+                let lnk = apiLink;
+                // Fallback to search by IMDB ID if LB link is missing
+                if (!lnk || !lnk.startsWith('http')) lnk = ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : '#';
+                add('letterboxd', v, lnk, c, 'Letterboxd');
             }
             else if (s === 'tomatoes' || s.includes('rotten_tomatoes')) {
                 add('rotten_tomatoes_critic', v, fixUrl(apiLink, 'rottentomatoes.com') || '#', c, 'RT Critic');
@@ -326,10 +345,14 @@ function renderRatings(container, data, imdbId, type) {
                 add('rotten_tomatoes_audience', v, fixUrl(apiLink, 'rottentomatoes.com') || '#', c, 'RT Audience');
             }
             else if (s.includes('metacritic') && !s.includes('user')) {
-                add('metacritic_critic', v, fixUrl(apiLink, 'metacritic.com') || `https://www.metacritic.com/${metaType}/${ids.slug}`, c, 'Metacritic');
+                let lnk = fixUrl(apiLink, 'metacritic.com');
+                if (!lnk || lnk === '#') lnk = ids.slug ? `https://www.metacritic.com/${metaType}/${ids.slug}` : '#';
+                add('metacritic_critic', v, lnk, c, 'Metacritic');
             }
             else if (s.includes('metacritic') && s.includes('user')) {
-                add('metacritic_user', v, fixUrl(apiLink, 'metacritic.com') || `https://www.metacritic.com/${metaType}/${ids.slug}/user-reviews`, c, 'User');
+                let lnk = fixUrl(apiLink, 'metacritic.com');
+                if (!lnk || lnk === '#') lnk = ids.slug ? `https://www.metacritic.com/${metaType}/${ids.slug}/user-reviews` : '#';
+                add('metacritic_user', v, lnk, c, 'User');
             }
             else if (s.includes('roger')) {
                 add('roger_ebert', v, fixUrl(apiLink, 'rogerebert.com') || '#', c, 'Roger Ebert');
@@ -378,6 +401,9 @@ function scan() {
     const imdbLink = document.querySelector('a[href*="imdb.com/title/"]');
     if (imdbLink) {
         const m = imdbLink.href.match(/tt\d+/);
+        // Save global IMDB ID when found
+        if (m) currentImdbId = m[0];
+        
         if (m && m[0] !== currentImdbId) {
             currentImdbId = m[0];
             document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
@@ -411,20 +437,19 @@ setInterval(scan, 500);
    4. SETTINGS MENU (INIT)
 ========================================================================== */
 let dragSrc = null;
+let themeColor = '#2a6df4';
 
-// --- Better Theme Detection ---
 function getJellyfinColor() {
-    // Try CSS Variable first (most reliable for themes)
     const rootVar = getComputedStyle(document.documentElement).getPropertyValue('--theme-primary-color').trim();
     if(rootVar) return rootVar;
-
-    // Fallback to computed style of play button
+    
+    // Fallback to finding a button
     const btn = document.querySelector('.button-submit, .btnPlay, .main-button, .emby-button-foreground');
     if(btn) {
         const col = window.getComputedStyle(btn).backgroundColor;
         if(col && col !== 'rgba(0, 0, 0, 0)') return col;
     }
-    return '#2a6df4'; // Default Blue
+    return '#2a6df4';
 }
 
 function initMenu() {
@@ -545,7 +570,7 @@ function initMenu() {
     });
     document.addEventListener('mouseup', () => isDrag = false);
     
-    // Fixed Close Logic (Click Outside)
+    // Fix: Close on click outside
     document.addEventListener('mousedown', (e) => {
         if (panel.style.display === 'block' && !panel.contains(e.target) && e.target.id !== 'customEndsAt') {
             panel.style.display = 'none';
