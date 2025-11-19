@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.5.3 — Spacing & Compact Fix)
+// @name         Jellyfin Ratings (v6.5.4 — Ends-At Spacing Fix)
 // @namespace    https://mdblist.com
-// @version      6.5.3
-// @description  Unified ratings. Increased Ends-At spacing. Compact Mode wider & shorter (no scroll).
+// @version      6.5.4
+// @description  Unified ratings. Fixes spacing to the right of 'Ends at'. Compact Mode optimized.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v6.5.3 loading...');
+console.log('[Jellyfin Ratings] v6.5.4 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -202,9 +202,10 @@ function getRatingColor(bands, choice, r) {
         if (!span) {
             span = document.createElement('span');
             span.id = 'customEndsAt';
-            // Added more margin-left (24px) to fix the tightness issue
+            // FIXED: Reset left margin to 10px, added RIGHT margin 24px to push the badge away
             Object.assign(span.style, {
-                marginLeft: '24px', 
+                marginLeft: '10px',
+                marginRight: '24px', // <-- Pushes the next element (Rating Badge) to the right
                 display: 'inline', 
                 verticalAlign: 'baseline'
             });
