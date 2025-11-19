@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v6.5.0 — Optimized & Clean)
+// @name         Jellyfin Ratings (v6.5.1 — Layout & UI Polish)
 // @namespace    https://mdblist.com
-// @version      6.5.0
-// @description  Unified ratings for Jellyfin. Optimized code structure. Range +/- 1500px. Native "Ends at" hidden.
+// @version      6.5.1
+// @description  Unified ratings for Jellyfin. Fixes Ends-At overlap. Improved Settings UI & Compact Mode.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v6.5.0 loading...');
+console.log('[Jellyfin Ratings] v6.5.1 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -19,7 +19,6 @@ try {
     const raw = localStorage.getItem(rawKey);
     if (raw) {
         const p = JSON.parse(raw);
-        // Reset storage if positions are corrupt (NaN)
         if (p.display && (isNaN(parseInt(p.display.posX)) || isNaN(parseInt(p.display.posY)))) {
             localStorage.removeItem(rawKey);
         }
@@ -150,7 +149,7 @@ function getRatingColor(bands, choice, r) {
     return COLOR_SWATCHES[band][i];
 }
 
-// Inject Styles (Optimized: Includes logic to prevent overflow clipping)
+// Inject Styles
 (function ensureStyleTag() {
     if (document.getElementById('mdblist-styles')) return;
     const style = document.createElement('style');
@@ -215,20 +214,34 @@ function getRatingColor(bands, choice, r) {
     // --- FEATURE: Restore Custom "Ends at" ---
     function ensureEndsAtInline() {
         const primary = findPrimaryRow(); if (!primary) return;
-        const { minutes } = findRuntimeNode(primary); if (!minutes) return;
+        
+        // Try to find existing time or add it
+        let span = primary.querySelector('#customEndsAt');
+        
+        const { minutes } = findRuntimeNode(primary); 
+        if (!minutes) {
+            // Safety cleanup if no runtime found
+            if(span) span.remove(); 
+            return;
+        }
 
         const end = new Date(Date.now() + minutes * 60000);
         const timeStr = `${Util.pad(end.getHours())}:${Util.pad(end.getMinutes())}`;
         const content = `Ends at ${timeStr}`;
 
-        let span = primary.querySelector('#customEndsAt');
         if (!span) {
             span = document.createElement('span');
             span.id = 'customEndsAt';
+            // Using flex/inline-flex behavior on parent usually, so we style this to sit nicely
             Object.assign(span.style, {
-                marginLeft: '10px', color: 'inherit', opacity: '0.8',
-                fontSize: 'inherit', fontWeight: 'inherit',
-                whiteSpace: 'nowrap', display: 'inline-block'
+                marginLeft: '12px', 
+                color: 'inherit', 
+                opacity: '0.8',
+                fontSize: 'inherit', 
+                fontWeight: 'inherit',
+                whiteSpace: 'nowrap', 
+                display: 'inline-block',
+                verticalAlign: 'middle' // Crucial for alignment
             });
             primary.appendChild(span);
         }
@@ -587,7 +600,9 @@ function getRatingColor(bands, choice, r) {
         height:36px; box-sizing:border-box; display:inline-block;
     }
     #mdbl-panel .mdbl-select { width:200px; justify-self:end; }
-    #mdbl-panel input.mdbl-pos-input { width: 50px; text-align: center; }
+    
+    /* FIXED: Wider inputs for positions to fit 4 digits comfortably */
+    #mdbl-panel input.mdbl-pos-input { width: 60px; text-align: center; font-size: 13px; }
     #mdbl-panel input.mdbl-num-input { width: 56px; text-align: center; -moz-appearance:textfield; }
     #mdbl-panel input.mdbl-num-input::-webkit-inner-spin-button, 
     #mdbl-panel input.mdbl-num-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -616,13 +631,14 @@ function getRatingColor(bands, choice, r) {
     #mdbl-panel .mdbl-actions .mdbl-grow { flex:1; }
     #mdbl-panel .mdbl-actions .mdbl-compact { display:inline-flex; align-items:center; gap:6px; opacity:0.95; }
     
-    /* Compact Mode overrides */
-    #mdbl-panel[data-compact="1"] { --mdbl-right-col:44px; --mdbl-right-col-wide:180px; width:440px; }
-    #mdbl-panel[data-compact="1"] header { padding:8px 12px; }
-    #mdbl-panel[data-compact="1"] .mdbl-section { padding:8px 12px; gap:6px; }
-    #mdbl-panel[data-compact="1"] .mdbl-row, #mdbl-panel[data-compact="1"] .mdbl-source { gap:6px; padding:5px 6px; border-radius:10px; }
+    /* Compact Mode overrides (FIXED: Wider width, smaller padding to prevent scrolling) */
+    #mdbl-panel[data-compact="1"] { --mdbl-right-col:44px; --mdbl-right-col-wide:180px; width:480px; }
+    #mdbl-panel[data-compact="1"] header { padding:6px 12px; }
+    #mdbl-panel[data-compact="1"] .mdbl-section { padding:6px 12px; gap:5px; }
+    #mdbl-panel[data-compact="1"] .mdbl-row, #mdbl-panel[data-compact="1"] .mdbl-source { gap:5px; padding:4px 6px; border-radius:8px; min-height: 40px; }
     #mdbl-panel[data-compact="1"] .mdbl-actions { padding:6px 10px; }
     #mdbl-panel[data-compact="1"] .mdbl-src-left img { height:16px; }
+    #mdbl-panel[data-compact="1"] select, #mdbl-panel[data-compact="1"] input.mdbl-pos-input { height: 32px; }
     `;
 
     if (!document.getElementById('mdbl-settings-css')) {
@@ -899,7 +915,6 @@ function getRatingColor(bands, choice, r) {
             mg: +(panel.querySelector('#col_mg')?.value || 0)
         };
         
-        // Compact level logic handled via event listener already, but we ensure structure exists
         if(typeof loadPrefs().display?.compactLevel !== 'undefined') prefs.display.compactLevel = loadPrefs().display.compactLevel;
 
         savePrefs(prefs); applyPrefs(prefs);
