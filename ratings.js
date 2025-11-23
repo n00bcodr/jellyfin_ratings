@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v9.5.0 — Nav Fix & Compact Header)
+// @name         Jellyfin Ratings (v9.8.0 — Master Rating & Cleaned)
 // @namespace    https://mdblist.com
-// @version      9.5.0
-// @description  Fixes loading on navigation by checking ID match (recycling fix). Compact Header "Settings".
+// @version      9.8.0
+// @description  Displays ratings (incl. Master Rating). Always uses Series rating for episodes. Master Rating fixed at pos 1.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v9.5.0 loading...');
+console.log('[Jellyfin Ratings] v9.8.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -17,6 +17,7 @@ const NS = 'mdbl_';
 
 const DEFAULTS = {
     sources: {
+        master: true,
         imdb: true, tmdb: true, trakt: true, letterboxd: true,
         rotten_tomatoes_critic: true, rotten_tomatoes_audience: true,
         metacritic_critic: true, metacritic_user: true,
@@ -26,6 +27,7 @@ const DEFAULTS = {
         showPercentSymbol: true,
         colorNumbers: true,
         colorIcons: false,
+        // episodeRatings entfernt
         posX: 0,
         posY: 0,
         colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
@@ -35,6 +37,7 @@ const DEFAULTS = {
     },
     spacing: { ratingsTopGapPx: 4 },
     priorities: {
+        master: -1, // Fix: Immer an erster Stelle
         imdb: 1, tmdb: 2, trakt: 3, letterboxd: 4,
         rotten_tomatoes_critic: 5, rotten_tomatoes_audience: 6,
         roger_ebert: 7, metacritic_critic: 8, metacritic_user: 9,
@@ -43,6 +46,7 @@ const DEFAULTS = {
 };
 
 const SCALE = {
+    master: 1,
     imdb: 10, tmdb: 1, trakt: 1, letterboxd: 20, roger_ebert: 25,
     metacritic_critic: 1, metacritic_user: 10, myanimelist: 10, anilist: 1,
     rotten_tomatoes_critic: 1, rotten_tomatoes_audience: 1
@@ -66,6 +70,7 @@ const CACHE_DURATION_API = 24 * 60 * 60 * 1000;
 const ICON_BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
 
 const LOGO = {
+    master: `${ICON_BASE}/master.png`,
     imdb: `${ICON_BASE}/IMDb.png`,
     tmdb: `${ICON_BASE}/TMDB.png`,
     trakt: `${ICON_BASE}/Trakt.png`,
@@ -80,6 +85,7 @@ const LOGO = {
 };
 
 const LABEL = {
+    master: 'Master Rating',
     imdb: 'IMDb', tmdb: 'TMDb', trakt: 'Trakt', letterboxd: 'Letterboxd',
     rotten_tomatoes_critic: 'Rotten Tomatoes (Critic)', rotten_tomatoes_audience: 'Rotten Tomatoes (Audience)',
     metacritic_critic: 'Metacritic (Critic)', metacritic_user: 'Metacritic (User)',
@@ -179,7 +185,7 @@ function updateGlobalStyles() {
 
     Object.keys(CFG.priorities).forEach(key => {
         const isEnabled = CFG.sources[key];
-        const order = CFG.priorities[key] || 999;
+        const order = CFG.priorities[key];
         rules += `
             .mdbl-rating-item[data-source="${key}"] {
                 display: ${isEnabled ? 'inline-flex' : 'none'};
@@ -266,7 +272,6 @@ function parseRuntimeToMinutes(text) {
 }
 
 function updateEndsAt() {
-    // Cleanup native elements
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
         if (el.id === 'customEndsAt' || el.id === 'mdbl-settings-trigger' || el.closest('.mdblist-rating-container')) return;
         const t = (el.textContent || '').toLowerCase();
@@ -351,6 +356,16 @@ function renderRatings(container, data, pageImdbId, type) {
     const metaType = type === 'show' ? 'tv' : 'movie';
     const fallbackSlug = localSlug(data.title || '');
 
+    // Master Rating Calculation
+    let masterSum = 0;
+    let masterCount = 0;
+    const trackMaster = (val, scaleKey) => {
+        if (val !== null && !isNaN(parseFloat(val))) {
+            masterSum += parseFloat(val) * (SCALE[scaleKey] || 1);
+            masterCount++;
+        }
+    };
+
     if (data.ratings) {
         data.ratings.forEach(r => {
             const s = (r.source || '').toLowerCase();
@@ -361,44 +376,62 @@ function renderRatings(container, data, pageImdbId, type) {
             if (s.includes('imdb')) {
                 const lnk = ids.imdb ? `https://www.imdb.com/title/${ids.imdb}/` : (apiLink && apiLink.startsWith('http') ? apiLink : null);
                 add('imdb', v, lnk, c, 'IMDb', 'Votes');
+                trackMaster(v, 'imdb');
             } 
             else if (s.includes('tmdb')) {
                 const lnk = ids.tmdb ? `https://www.themoviedb.org/${type}/${ids.tmdb}` : '#';
                 add('tmdb', v, lnk, c, 'TMDb', 'Votes');
+                trackMaster(v, 'tmdb');
             }
             else if (s.includes('trakt')) {
                 const lnk = ids.imdb ? `https://trakt.tv/search/imdb/${ids.imdb}` : '#';
                 add('trakt', v, lnk, c, 'Trakt', 'Votes');
+                trackMaster(v, 'trakt');
             }
             else if (s.includes('letterboxd')) {
                 const lnk = ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : fixUrl(apiLink, 'letterboxd.com');
                 add('letterboxd', v, lnk, c, 'Letterboxd', 'Votes');
+                trackMaster(v, 'letterboxd');
             }
             else if (s === 'tomatoes' || s.includes('rotten_tomatoes')) {
                 add('rotten_tomatoes_critic', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'RT Critic', 'Reviews');
+                trackMaster(v, 'rotten_tomatoes_critic');
             }
             else if (s.includes('popcorn') || s.includes('audience')) {
                 add('rotten_tomatoes_audience', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'RT Audience', 'Ratings');
+                trackMaster(v, 'rotten_tomatoes_audience');
             }
             else if (s.includes('metacritic') && !s.includes('user')) {
                 const lnk = fallbackSlug ? `https://www.metacritic.com/${metaType}/${fallbackSlug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(data.title||'')}/results`;
                 add('metacritic_critic', v, lnk, c, 'Metacritic', 'Reviews');
+                trackMaster(v, 'metacritic_critic');
             }
             else if (s.includes('metacritic') && s.includes('user')) {
                 const lnk = fallbackSlug ? `https://www.metacritic.com/${metaType}/${fallbackSlug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(data.title||'')}/results`;
                 add('metacritic_user', v, lnk, c, 'User', 'Ratings');
+                trackMaster(v, 'metacritic_user');
             }
             else if (s.includes('roger')) {
                 add('roger_ebert', v, fixUrl(apiLink, 'rogerebert.com'), c, 'Roger Ebert', 'Reviews');
+                trackMaster(v, 'roger_ebert');
             }
             else if (s.includes('anilist')) {
                 add('anilist', v, fixUrl(apiLink, 'anilist.co'), c, 'AniList', 'Votes');
+                trackMaster(v, 'anilist');
             }
             else if (s.includes('myanimelist')) {
                 add('myanimelist', v, fixUrl(apiLink, 'myanimelist.net'), c, 'MAL', 'Votes');
+                trackMaster(v, 'myanimelist');
             }
         });
     }
+
+    // --- MASTER RATING ---
+    if (masterCount > 0) {
+        const average = masterSum / masterCount;
+        add('master', average, '#', masterCount, 'Master Rating', 'Sources');
+    }
+
     container.innerHTML = html;
     refreshDomElements();
 }
@@ -453,8 +486,8 @@ function scan() {
     }
 
     [...document.querySelectorAll('a[href*="themoviedb.org/"]')].forEach(a => {
-        // Match link but do NOT rely on a processed flag on the button itself
-        // because the button might be recycled with a new link!
+        // Old simple logic: Extracts Show-ID even from Episode-Links
+        // E.g. /tv/12345/season/1... -> matches /tv/12345 -> fetches Show Ratings
         const m = a.href.match(/\/(movie|tv)\/(\d+)/);
         if (m) {
             const type = m[1] === 'tv' ? 'show' : 'movie';
@@ -724,7 +757,7 @@ function renderMenuContent(panel) {
         CFG.display.colorNumbers = panel.querySelector('#d_cnum').checked;
         CFG.display.colorIcons = panel.querySelector('#d_cicon').checked;
         CFG.display.showPercentSymbol = panel.querySelector('#d_pct').checked;
-        CFG.display.endsAt24h = panel.querySelector('#d_24h').checked; // Live Update 24h
+        CFG.display.endsAt24h = panel.querySelector('#d_24h').checked; 
         
         CFG.display.colorBands.redMax = parseInt(panel.querySelector('#th_red').value)||50;
         CFG.display.colorBands.orangeMax = parseInt(panel.querySelector('#th_orange').value)||69;
