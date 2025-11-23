@@ -1,98 +1,195 @@
-# Jellyfin Ratings
+# 🌟 Jellyfin Ratings
 
-Add clean, clickable ratings to Jellyfin item pages (movies, shows, and anime) from popular sites. Configure everything from a small gear icon in the bottom‑right corner of the item page — no server restart needed.
-
----
-
-## Features
-
-* Adds rating badges to item pages with links back to the source.
-* Optional colercoded ratings for better readability.
-* Works for movies, series, and anime.
-* Turn individual sources on/off.
-* **Drag & drop** to reorder which ratings appear first (from the in‑app menu).
-* Compact Mode for the Menu to better fit different screen sizes.
-* Lightweight; loads only when needed in the web UI.
-
-### Available rating sources
-
-* IMDb
-* TMDb
-* Trakt
-* Letterboxd
-* Rotten Tomatoes (Critics)
-* Rotten Tomatoes (Audience)
-* Roger Ebert
-* Metacritic (Critics)
-* Metacritic (Users)
-* AniList
-* MyAnimeList
+**Jellyfin Ratings** allows you to display diverse, customizable ratings directly on your Jellyfin movie and TV show pages. It seamlessly injects ratings from sources like **IMDb, TMDb, Rotten Tomatoes, Metacritic, Trakt, Letterboxd**, and more without modifying core server files.
 
 ---
 
-## Screenshots
+## ✨ Features
 
-![Movie detail view](assets/screenshots/item_details_page.png)
-![Closeup Ratings](assets/screenshots/closeup_with_viewcount.png)
+* **📊 Comprehensive Sources:** Supports ratings from:
+    * IMDb
+    * TMDb
+    * Trakt
+    * Letterboxd
+    * Rotten Tomatoes (Critics & Audience)
+    * Metacritic (Critics & Users)
+    * Roger Ebert
+    * AniList & MyAnimeList
+* **🔗 Clickable Icons:** Clicking any rating icon (e.g., IMDb, TMDb) opens the specific page for that title on the source website.
+* **⭐ Master Rating:** Calculates the average score of all active sources for a quick quality overview.
+    * **Smart Wiki Link:** Clicking the Master Rating star performs an "I'm Feeling Lucky" search to take you directly to the English **Wikipedia** article for the title.
+* **🎨 Highly Customizable:**
+    * **Toggle & Reorder:** Enable only the sources you trust and drag-and-drop them in the settings menu to change their order.
+    * **Visual Styles:** Choose between raw numbers or percentages, color-coded scores (Red/Orange/Green), and colored icons.
+* **🛡️ Robust Loading:** Uses a resilient injection method that handles network timeouts and caching issues effectively.
+* **⚡ Lightweight:** Runs entirely client-side within the browser; no heavy server-side processes required.
+
+---
+
+## 📸 Screenshots
+
+![Item Detail View](assets/screenshots/item_details_page.png)
+*Ratings displayed on a movie page, including the Master Rating star.*
+
 ![Settings Menu](assets/screenshots/settings_menu.png)
-
-## Requirements
-
-* JavaScript Injector Plugin (required)
-* MDBList API key (required)
+*The configuration menu allows for easy toggling and reordering.*
 
 ---
 
-## Quick start (JavaScript Injector)
+## 🚀 Installation
 
-1. Install the JavaScript‑injector Plugin for Jellyfin.
-   [JavaScript Injector by n00bcodr](https://github.com/n00bcodr/Jellyfin-JavaScript-Injector)
+### Prerequisites
+1.  **Jellyfin Server** (recommended version 10.8.0 or newer).
+2.  **[Jellyfin JavaScript Injector Plugin](https://github.com/n00bcodr/Jellyfin-JavaScript-Injector)** installed on your server.
+3.  A free **[MDBList API Key](https://mdblist.com/preferences)**.
 
-3. Paste the contents of injector.js into the injector plugin:
+### Step-by-Step Guide
 
-   ```html
-   /* ================= Jellyfin Ratings — Minimal Injector =================
-      Paste into Jellyfin’s JS Injector.
-      • Set your MDBList key below (client-side only; never in GitHub).
-      • Open Settings by clicking any rating number or the parental rating.
-   ============================================================================ */
-   
-   /* 0) Your MDBList API key (required) */
-   const MDBLIST_KEY = 'YOUR-API-KEY-HERE';
-   
-   /* Expose key + mirror to localStorage (overrides any local key) */
-   window.MDBL_KEYS = { MDBLIST: MDBLIST_KEY };
-   try { localStorage.setItem('mdbl_keys', JSON.stringify(window.MDBL_KEYS)); } catch {}
-   
-   /* Loader — fetch your GitHub script (cache-busted) and run it */
-   (async () => {
-     const RAW_URL = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/ratings.js';
-     try {
-       const res = await fetch(`${RAW_URL}?t=${Date.now()}`, { cache: 'no-store', mode: 'cors' });
-       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-       const code = await res.text();
-       try { new Function(code)(); } catch { (0, eval)(code); } // fallback
-     } catch (err) {
-       console.error('[Jellyfin Ratings] loader failed:', err);
-     }
-   })();
-   ```
-4. Add you MDBList API-Key to the top of the script.
-5. Save and refresh Jellyfin in your browser
+1.  Open your Jellyfin Dashboard and navigate to **Plugins** > **JavaScript Injector**.
+2.  Add a new script and paste the following **Robust Loader Code** into the Javascript section:
 
----
+```javascript
+/* ================= Jellyfin Ratings — Robust Injector (v10.2.0) =================
+   Features: Timeout, Auto-Retry, Sync Execution & Clean Config.
+=============================================================================== */
 
-## Configure
+const CONFIG = {
+    // Toggle between development (true) and production/release (false)
+    isDevelopment: false, 
+    
+    // Your API Key (REQUIRED)
+    apiKey: 'YOUR-MDBLIST-API-KEY-HERE',
+    
+    // Source URLs
+    urls: {
+        dev: '[https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/ratings.js](https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/ratings.js)',
+        prod: '[https://cdn.jsdelivr.net/gh/xroguel1ke/jellyfin_ratings@main/ratings.js](https://cdn.jsdelivr.net/gh/xroguel1ke/jellyfin_ratings@main/ratings.js)'
+    },
+    
+    // Resilience settings
+    timeoutMs: 5000, // Abort fetch after 5 seconds
+    maxRetries: 3    // Retry up to 3 times if network fails
+};
 
-1. Open any movie/series/anime item page in Jellyfin.
-2. Click the rating **number** to open the Settings panel. Clicking a rating **icon** opens its source page (IMDb, TMDb, etc.).
-4. Toggle the sources you want.
-5. Toggle Settings like colored ratings, colored icons and the color palette.
-6. Use **drag & drop** in the menu to reorder how the ratings appear.
-7. Toggle Compact Mode for a more compact Settings menu
+/* Expose Key */
+window.MDBL_KEYS = { MDBLIST: CONFIG.apiKey };
+try { localStorage.setItem('mdbl_keys', JSON.stringify(window.MDBL_KEYS)); } catch {}
 
----
+/* Helper: Fetch with Timeout */
+const fetchWithTimeout = async (url, options = {}) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), CONFIG.timeoutMs);
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(id);
+        return response;
+    } catch (error) {
+        clearTimeout(id);
+        throw error;
+    }
+};
 
-## Acknowledgments
+/* Helper: Sleep for Retry */
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-Thanks to the Jellyfin community and the rating providers listed above.
+/* Main Loader Logic */
+(async () => {
+    let targetUrl = CONFIG.isDevelopment 
+        ? `${CONFIG.urls.dev}?t=${Date.now()}` 
+        : CONFIG.urls.prod;
+        
+    let attempts = 0;
+    let success = false;
+
+    console.log(`[Jellyfin Ratings] Loader initializing... Mode: ${CONFIG.isDevelopment ? 'DEV' : 'PROD'}`);
+
+    while (attempts < CONFIG.maxRetries && !success) {
+        attempts++;
+        try {
+            if (attempts > 1) console.log(`[Jellyfin Ratings] Retry attempt ${attempts}/${CONFIG.maxRetries}...`);
+            
+            const res = await fetchWithTimeout(targetUrl, { cache: 'no-store', mode: 'cors' });
+            
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            
+            const code = await res.text();
+            
+            // Execute synchronously
+            try { new Function(code)(); } catch (e) { (0, eval)(code); }
+            
+            console.log('[Jellyfin Ratings] Script loaded & executed successfully.');
+            success = true;
+
+        } catch (err) {
+            console.warn(`[Jellyfin Ratings] Fetch failed (Attempt ${attempts}):`, err.message);
+            if (attempts < CONFIG.maxRetries) await sleep(1000); 
+        }
+    }
+
+    if (!success) {
+        console.error('[Jellyfin Ratings] FATAL: Could not load script after multiple attempts.');
+    }
+})();
+`````
+
+⚠️ IMPORTANT: Replace 'YOUR-MDBLIST-API-KEY-HERE' in the code above with your actual MDBList API key.
+
+    Click Save.
+
+    Reload your Jellyfin browser tab (Ctrl+F5) to see the ratings appear.
+
+⚙️ Configuration & Usage
+
+You can configure the script directly inside the Jellyfin web UI without editing any files.
+
+Opening the Menu
+
+    Navigate to any movie or TV show detail page.
+
+    Look for the "Ends at..." time (located next to the runtime/year).
+
+    Click the small Gear Icon (⚙️) next to the time to open the Settings Menu.
+
+Settings Options
+
+    Sources: Toggle individual rating sources on or off.
+
+    Ordering: Drag and drop sources in the list to change their display order.
+
+    Display:
+
+        Color numbers: Colors the text based on the score.
+
+        Color icons: Adds a colored glow/shadow to the icons.
+
+        Show %: Toggles the percentage symbol.
+
+    Colors: Customize the thresholds for Red, Orange, and Green ratings.
+
+Usage
+
+    Source Links: Click on any rating icon (e.g., IMDb logo) to open the corresponding page on the source website in a new tab.
+
+    Wikipedia Link: Click on the Master Rating (⭐ icon) to open a new tab searching for the movie/show on Wikipedia (English). It uses a smart redirect to find the correct article automatically.
+
+🛠️ Development
+
+If you want to fork or contribute to this script:
+
+    Development Mode: In the injector code, set isDevelopment: true.
+
+        This forces the script to load from raw.githubusercontent.com with a timestamp cache-buster.
+
+        Benefit: You see your commits immediately after pushing.
+
+    Production Mode: Set isDevelopment: false.
+
+        This uses jsDelivr for content delivery.
+
+        Benefit: Faster loading times, correct MIME types, and caching for end-users.
+
+🤝 Acknowledgments
+
+    Powered by the amazing MDBList API.
+
+    Built for the Jellyfin community.
