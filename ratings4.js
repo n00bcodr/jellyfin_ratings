@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v9.7.0 — Master Fix & Strict Episode Logic)
+// @name         Jellyfin Ratings (v10.1.0 — Smart Wiki Link)
 // @namespace    https://mdblist.com
-// @version      9.7.0
-// @description  Adds Master Rating, robust Live Toggle for Episodes, and strict IMDb ID usage for episodes.
+// @version      10.1.0
+// @description  Master Rating links to Wikipedia via Google "I'm Feeling Lucky" for better accuracy.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript>
 
-console.log('[Jellyfin Ratings] v9.7.0 loading...');
+console.log('[Jellyfin Ratings] v10.1.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -27,7 +27,6 @@ const DEFAULTS = {
         showPercentSymbol: true,
         colorNumbers: true,
         colorIcons: false,
-        episodeRatings: false, 
         posX: 0,
         posY: 0,
         colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
@@ -37,7 +36,7 @@ const DEFAULTS = {
     },
     spacing: { ratingsTopGapPx: 4 },
     priorities: {
-        master: -1,
+        master: -1, 
         imdb: 1, tmdb: 2, trakt: 3, letterboxd: 4,
         rotten_tomatoes_critic: 5, rotten_tomatoes_audience: 6,
         roger_ebert: 7, metacritic_critic: 8, metacritic_user: 9,
@@ -168,19 +167,23 @@ function updateGlobalStyles() {
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; }
         
+        /* IMPROVED CLICK STYLES */
         #customEndsAt { 
-            font-size: inherit; opacity: 0.7; cursor: pointer; 
-            margin-left: 10px; display: inline; vertical-align: baseline;
+            font-size: inherit; opacity: 0.8; cursor: pointer; 
+            margin-left: 10px; display: inline-block; vertical-align: baseline;
+            pointer-events: auto; position: relative; z-index: 999;
+            padding: 2px 4px;
         }
         #customEndsAt:hover { opacity: 1.0; text-decoration: underline; }
         
         #mdbl-settings-trigger {
             display: inline-flex; align-items: center; justify-content: center;
-            margin-left: 6px; cursor: pointer; opacity: 0.6; transition: opacity 0.2s, transform 0.2s;
-            width: 1.1em; height: 1.1em; vertical-align: middle;
+            margin-left: 6px; cursor: pointer; opacity: 0.7; transition: opacity 0.2s, transform 0.2s;
+            width: 1.3em; height: 1.3em; vertical-align: middle;
+            pointer-events: auto; position: relative; z-index: 999;
         }
         #mdbl-settings-trigger:hover { opacity: 1; transform: rotate(45deg); }
-        #mdbl-settings-trigger svg { width: 100%; height: 100%; fill: currentColor; }
+        #mdbl-settings-trigger svg { width: 100%; height: 100%; fill: currentColor; pointer-events: none; }
     `;
 
     Object.keys(CFG.priorities).forEach(key => {
@@ -238,17 +241,14 @@ function fixUrl(url, domain) {
     return `https://${domain}/${clean}`;
 }
 
-document.addEventListener('click', (e) => {
-    if (e.target.id === 'customEndsAt' || e.target.closest('#mdbl-settings-trigger')) {
-        e.preventDefault(); e.stopPropagation();
-        if(window.MDBL_OPEN_SETTINGS) {
-             window.MDBL_OPEN_SETTINGS();
-        } else {
-             initMenu();
-             if(window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
-        }
+function openSettingsMenu() {
+    if (window.MDBL_OPEN_SETTINGS) {
+        window.MDBL_OPEN_SETTINGS();
+    } else {
+        initMenu();
+        if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
     }
-}, true);
+}
 
 function formatTime(minutes) {
     const d = new Date(Date.now() + minutes * 60000);
@@ -305,6 +305,12 @@ function updateEndsAt() {
         span = document.createElement('div');
         span.id = 'customEndsAt';
         span.title = 'Click to open Settings';
+        span.onclick = (e) => {
+            e.preventDefault(); 
+            e.stopPropagation();
+            openSettingsMenu();
+        };
+        
         const ref = primary.querySelector('.mediaInfoOfficialRating') || primary.lastElementChild;
         if(ref && ref.parentNode === primary) primary.insertBefore(span, ref.nextSibling);
         else primary.appendChild(span);
@@ -317,6 +323,13 @@ function updateEndsAt() {
         icon.id = 'mdbl-settings-trigger';
         icon.title = 'Settings';
         icon.innerHTML = `<svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>`;
+        
+        icon.onclick = (e) => {
+            e.preventDefault(); 
+            e.stopPropagation();
+            openSettingsMenu();
+        };
+
         if (span.nextSibling) span.parentNode.insertBefore(icon, span.nextSibling);
         else span.parentNode.appendChild(icon);
     }
@@ -426,18 +439,26 @@ function renderRatings(container, data, pageImdbId, type) {
         });
     }
 
-    // --- MASTER RATING ---
+    // --- MASTER RATING (Google "I'm Feeling Lucky" Wikipedia Link) ---
     if (masterCount > 0) {
         const average = masterSum / masterCount;
-        add('master', average, '#', masterCount, 'Master Rating', 'Sources');
+        
+        const safeTitle = encodeURIComponent(data.title || '');
+        const safeYear = (data.year || '').toString();
+        const suffix = type === 'movie' ? 'film' : 'TV series';
+        
+        // This URL triggers a Google search restricted to English Wikipedia and auto-redirects to the first result
+        const wikiUrl = `https://www.google.com/search?q=site:en.wikipedia.org+${safeTitle}+${safeYear}+${suffix}&btnI`;
+
+        add('master', average, wikiUrl, masterCount, 'Master Rating', 'Sources');
     }
 
     container.innerHTML = html;
     refreshDomElements();
 }
 
-function fetchRatings(container, id, type, idType = 'tmdb') {
-    const cacheKey = `${NS}c_${id}_${type || 'unk'}_${idType}`; 
+function fetchRatings(container, tmdbId, type) {
+    const cacheKey = `${NS}c_${tmdbId}`;
     try {
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
@@ -449,14 +470,9 @@ function fetchRatings(container, id, type, idType = 'tmdb') {
         }
     } catch(e) {}
 
-    // Use imdb endpoint if idType is imdb (tt...)
-    const url = idType === 'imdb' 
-        ? `https://api.mdblist.com/imdb/${id}?apikey=${API_KEY}`
-        : `https://api.mdblist.com/tmdb/${type}/${id}?apikey=${API_KEY}`;
-
     GM_xmlhttpRequest({
         method: 'GET',
-        url: url,
+        url: `https://api.mdblist.com/tmdb/${type}/${tmdbId}?apikey=${API_KEY}`,
         onload: r => {
             try {
                 const d = JSON.parse(r.responseText);
@@ -468,80 +484,48 @@ function fetchRatings(container, id, type, idType = 'tmdb') {
 }
 
 function scan() {
-    // --- NAVIGATION GUARD ---
+    // --- NAVIGATION GUARD (RECYCLING FIX) ---
     if (window.location.pathname !== lastPath) {
         lastPath = window.location.pathname;
         currentImdbId = null; 
+        // Force cleanup to allow re-injection on recycled pages
         document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
     }
-    // ------------------------
+    // ----------------------------------------
 
     updateEndsAt();
 
-    // IMDb ID finden (wichtig für Episoden!)
     const imdbLink = document.querySelector('a[href*="imdb.com/title/"]');
     if (imdbLink) {
         const m = imdbLink.href.match(/tt\d+/);
         if (m) {
             if (m[0] !== currentImdbId) {
                 currentImdbId = m[0];
-                // ID changed? Clear containers to force reload
                 document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
             }
         }
     }
 
     [...document.querySelectorAll('a[href*="themoviedb.org/"]')].forEach(a => {
-        let type = 'movie';
-        let id = null;
-        let useImdbForEpisode = false;
-
-        // Prüfen ob es eine Episode ist
-        const epMatch = a.href.match(/\/tv\/(\d+)\/season\/\d+\/episode\/\d+/);
-        const showMatch = a.href.match(/\/(movie|tv)\/(\d+)/);
-
-        if (epMatch) {
-            if (CFG.display.episodeRatings) {
-                 // STRICT MODE: If user wants episode ratings, we MUST use the IMDb ID found on page.
-                 // If no IMDb ID is found (currentImdbId is null), we do NOT fallback to Show ID.
-                 if (currentImdbId) {
-                     useImdbForEpisode = true;
-                 } else {
-                     // No IMDb ID found -> Do nothing (don't show incorrect Series ratings)
-                     return; 
-                 }
-            } else {
-                 // Checkbox AUS: Fallback auf Serien-ID erzwingen
-                 if(showMatch) {
-                    type = showMatch[1] === 'tv' ? 'show' : 'movie';
-                    id = showMatch[2];
-                 }
-            }
-        } else if (showMatch) {
-            type = showMatch[1] === 'tv' ? 'show' : 'movie';
-            id = showMatch[2];
-        }
-
-        const targetId = useImdbForEpisode ? currentImdbId : id;
-
-        if (targetId) {
+        const m = a.href.match(/\/(movie|tv)\/(\d+)/);
+        if (m) {
+            const type = m[1] === 'tv' ? 'show' : 'movie';
+            const id = m[2];
+            
             const wrapper = document.querySelector('.itemMiscInfo');
             if (wrapper) {
-                // Wir nutzen die ID im Dataset, um zu prüfen ob wir neu laden müssen
-                const existing = wrapper.querySelector(`.mdblist-rating-container[data-id="${targetId}"]`);
+                // Check if a container for THIS ID already exists
+                const existing = wrapper.querySelector(`.mdblist-rating-container[data-tmdb-id="${id}"]`);
                 if (!existing) {
+                    // Remove any OLD container (wrong ID)
                     wrapper.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
+
                     const div = document.createElement('div');
                     div.className = 'mdblist-rating-container';
                     div.dataset.type = type;
-                    div.dataset.id = targetId; 
+                    div.dataset.tmdbId = id;
                     wrapper.appendChild(div);
-                    
-                    if (useImdbForEpisode) {
-                        fetchRatings(div, targetId, 'episode', 'imdb');
-                    } else {
-                        fetchRatings(div, targetId, type, 'tmdb');
-                    }
+                    fetchRatings(div, id, type);
                 }
             }
         }
@@ -719,7 +703,6 @@ function renderMenuContent(panel) {
     </div>
     <div class="mdbl-section" id="mdbl-sec-display">
         <div class="mdbl-subtle">Display</div>
-        ${row('Show Episode Ratings', `<input type="checkbox" id="d_ep_rate" ${CFG.display.episodeRatings?'checked':''}>`)}
         ${row('Color numbers', `<input type="checkbox" id="d_cnum" ${CFG.display.colorNumbers?'checked':''}>`)}
         ${row('Color icons', `<input type="checkbox" id="d_cicon" ${CFG.display.colorIcons?'checked':''}>`)}
         ${row('Show %', `<input type="checkbox" id="d_pct" ${CFG.display.showPercentSymbol?'checked':''}>`)}
@@ -789,13 +772,7 @@ function renderMenuContent(panel) {
 
     panel.querySelector('#mdbl-close').onclick = () => panel.style.display = 'none';
     
-    // FORCE RELOAD LISTENER: Clears containers on checkbox toggle
-    panel.querySelector('#d_ep_rate').addEventListener('change', () => {
-        document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
-    });
-
     const updateLiveAll = () => {
-        CFG.display.episodeRatings = panel.querySelector('#d_ep_rate').checked;
         CFG.display.colorNumbers = panel.querySelector('#d_cnum').checked;
         CFG.display.colorIcons = panel.querySelector('#d_cicon').checked;
         CFG.display.showPercentSymbol = panel.querySelector('#d_pct').checked;
