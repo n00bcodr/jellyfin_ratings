@@ -1,62 +1,85 @@
-/* ================= Jellyfin Ratings — Minimal Injector (v10.1.1) =================
-   Optimierter Loader mit sauberer Trennung zwischen Dev- und Release-Modus.
-============================================================================ */
+/* ================= Jellyfin Ratings — Robust Injector (v10.2.0) =================
+   Features: Timeout, Auto-Retry, Sync Execution & Clean Config.
+=============================================================================== */
 
-/* 0) Development/Production Mode: 
-   - true: Nutzt GitHub Raw + Cache Buster (Gut zum Testen).
-   - false: Nutzt jsDelivr (Gut für Endnutzer: schneller & korrekte Header).
-*/
-const IS_DEVELOPMENT = true; 
+const CONFIG = {
+    // Toggle between development (true) and production/release (false)
+    isDevelopment: true, 
+    
+    // Your API Key
+    apiKey: 'MDBLIST-API-KEY-HERE',
+    
+    // Source URLs
+    urls: {
+        dev: 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/ratings.js',
+        prod: 'https://cdn.jsdelivr.net/gh/xroguel1ke/jellyfin_ratings@main/ratings.js'
+    },
+    
+    // Resilience settings
+    timeoutMs: 5000, // Abort fetch after 5 seconds
+    maxRetries: 3    // Retry up to 3 times if network fails
+};
 
-/* 1) Your MDBList API key (required) */
-const MDBLIST_KEY = 'MDBLIST-API-KEY-HERE'; 
-
-/* Expose key + mirror to localStorage */
-window.MDBL_KEYS = { MDBLIST: MDBLIST_KEY };
+/* Expose Key */
+window.MDBL_KEYS = { MDBLIST: CONFIG.apiKey };
 try { localStorage.setItem('mdbl_keys', JSON.stringify(window.MDBL_KEYS)); } catch {}
 
-/* 2) Loader Logic */
+/* Helper: Fetch with Timeout */
+const fetchWithTimeout = async (url, options = {}) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), CONFIG.timeoutMs);
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(id);
+        return response;
+    } catch (error) {
+        clearTimeout(id);
+        throw error;
+    }
+};
+
+/* Helper: Sleep for Retry */
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+/* Main Loader Logic */
 (async () => {
-  const GITHUB_URL = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/ratings.js';
-  const JSDELIVR_URL = 'https://cdn.jsdelivr.net/gh/xroguel1ke/jellyfin_ratings@main/ratings.js';
-  
-  let finalUrl, debugInfo;
+    let targetUrl = CONFIG.isDevelopment 
+        ? `${CONFIG.urls.dev}?t=${Date.now()}` 
+        : CONFIG.urls.prod;
+        
+    let attempts = 0;
+    let success = false;
 
-  if (IS_DEVELOPMENT) {
-    // Im Dev-Modus: Cache-Buster erzwingen
-    finalUrl = `${GITHUB_URL}?t=${Date.now()}`;
-    debugInfo = 'Development Mode (GitHub Raw + Cache Buster)';
-  } else {
-    // Im Prod-Modus: Stabile jsDelivr-URL verwenden
-    finalUrl = JSDELIVR_URL;
-    debugInfo = 'Production Mode (jsDelivr)';
-  }
+    console.log(`[Jellyfin Ratings] Loader initializing... Mode: ${CONFIG.isDevelopment ? 'DEV' : 'PROD'}`);
 
-  console.log(`[Jellyfin Ratings] Loader starting (${debugInfo}) from: ${finalUrl.split('?')[0]}`);
+    while (attempts < CONFIG.maxRetries && !success) {
+        attempts++;
+        try {
+            // Attempt 1, 2, 3...
+            if (attempts > 1) console.log(`[Jellyfin Ratings] Retry attempt ${attempts}/${CONFIG.maxRetries}...`);
+            
+            // Fetch script content (cors mode required for GitHub Raw)
+            const res = await fetchWithTimeout(targetUrl, { cache: 'no-store', mode: 'cors' });
+            
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            
+            const code = await res.text();
+            
+            // Execute synchronously in current scope (safest for Jellyfin UI)
+            try { new Function(code)(); } catch (e) { (0, eval)(code); }
+            
+            console.log('[Jellyfin Ratings] Script loaded & executed successfully.');
+            success = true;
 
-  try {
-    const res = await fetch(finalUrl, { cache: 'no-store', mode: 'cors' });
-    
-    if (!res.ok) {
-      throw new Error(`HTTP Error ${res.status}. Could not fetch script.`);
+        } catch (err) {
+            console.warn(`[Jellyfin Ratings] Fetch failed (Attempt ${attempts}):`, err.message);
+            
+            // Wait 1 second before next retry, but only if we have retries left
+            if (attempts < CONFIG.maxRetries) await sleep(1000); 
+        }
     }
 
-    const code = await res.text();
-    
-    // ZUVERLÄSSIGE AUSFÜHRUNG: Eval/Function-Konstrukt
-    try { 
-      new Function(code)(); 
-    } catch (e) { 
-      // Fallback für strikte Umgebungen, fängt aber keine Syntaxfehler
-      (0, eval)(code); 
-    } 
-
-    console.log('[Jellyfin Ratings] Script executed successfully.');
-
-  } catch (err) {
-    console.error(`[Jellyfin Ratings] FATAL LOADER ERROR:`, err);
-    if (!IS_DEVELOPMENT) {
-      console.warn('[Jellyfin Ratings] TIP: If this is a new version, jsDelivr caching may take up to 15 minutes.');
+    if (!success) {
+        console.error('[Jellyfin Ratings] FATAL: Could not load script after multiple attempts.');
     }
-  }
 })();
