@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.37 — Link Gen & Hard Reset)
+// @name         Jellyfin Ratings (v10.1.39 — Final Link Fix)
 // @namespace    https://mdblist.com
-// @version      10.1.37
-// @description  Master Rating links to Wikipedia. Gear icon first. Hides default ratings. Generates clean links internally. Hard resets on nav to fix stale data.
+// @version      10.1.39
+// @description  Master Rating links to Wikipedia. Gear icon first. Hides default ratings. Manually builds IMDb/TMDB links. Aggressive state reset on navigation.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.37 loading...');
+console.log('[Jellyfin Ratings] v10.1.39 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -219,6 +219,15 @@ updateGlobalStyles();
    3. MAIN LOGIC
 ========================================================================== */
 
+function fixUrl(url, domain) {
+    if (!url) return null;
+    // FIX: Ensure url is a string before checking
+    const strUrl = String(url);
+    if (strUrl.startsWith('http')) return strUrl;
+    const clean = strUrl.startsWith('/') ? strUrl.substring(1) : strUrl;
+    return `https://${domain}/${clean}`;
+}
+
 function openSettingsMenu() {
     initMenu();
     const p = document.getElementById('mdbl-panel');
@@ -306,22 +315,19 @@ function updateEndsAt() {
     }
 }
 
-// FIX 1: Robust Link Generator (Ignores garbage API URLs)
-function generateRatingLink(key, idData, apiLink, type) {
-    const fallbackSlug = localSlug(document.title || ''); // Fallback slug
-    
+// FIX: Manual Link Generation to bypass API garbage
+function generateLink(key, ids, apiLink, type) {
     switch(key) {
-        case 'imdb': return idData.imdb ? `https://www.imdb.com/title/${idData.imdb}/` : '#';
-        case 'tmdb': return idData.tmdb ? `https://www.themoviedb.org/${type}/${idData.tmdb}` : '#';
-        case 'trakt': return idData.trakt ? `https://trakt.tv/${type}s/${idData.trakt}` : (idData.imdb ? `https://trakt.tv/search/imdb/${idData.imdb}` : '#');
-        case 'letterboxd': return (apiLink && apiLink.includes('/film/')) ? `https://letterboxd.com${apiLink}` : (idData.imdb ? `https://letterboxd.com/imdb/${idData.imdb}/` : '#');
-        case 'rotten_tomatoes_critic':
-        case 'rotten_tomatoes_audience': return (apiLink && apiLink.startsWith('/')) ? `https://www.rottentomatoes.com${apiLink}` : '#';
-        case 'metacritic_critic':
-        case 'metacritic_user': return (apiLink && apiLink.startsWith('/')) ? `https://www.metacritic.com${apiLink}` : '#';
-        case 'anilist': return (apiLink && apiLink.startsWith('http')) ? apiLink : 'https://anilist.co/';
-        case 'myanimelist': return (apiLink && apiLink.startsWith('http')) ? apiLink : 'https://myanimelist.net/';
-        default: return (apiLink && apiLink.startsWith('http')) ? apiLink : '#';
+        case 'imdb': return ids.imdb ? `https://www.imdb.com/title/${ids.imdb}/` : '#';
+        case 'tmdb': return ids.tmdb ? `https://www.themoviedb.org/${type}/${ids.tmdb}` : '#';
+        case 'trakt': return ids.trakt ? `https://trakt.tv/${type}s/${ids.trakt}` : (ids.imdb ? `https://trakt.tv/search/imdb/${ids.imdb}` : '#');
+        case 'letterboxd': 
+            // Letterboxd is strictly movie usually via imdb id
+            return ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : '#';
+        default:
+            // Fallback to API link but check if it's a string first
+            const sLink = String(apiLink || '');
+            return sLink.startsWith('http') ? sLink : '#';
     }
 }
 
@@ -332,7 +338,7 @@ function createRatingHtml(key, val, link, count, title, kind) {
     const r = Math.round(n);
     const tooltip = (count && count > 0) ? `${title} — ${count.toLocaleString()} ${kind||'Votes'}` : title;
     
-    const style = (!link || link === '#') ? 'cursor:default;' : '';
+    const style = (!link || link === '#') ? 'cursor:default;' : 'cursor:pointer;';
     return `<a href="${link}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}" style="${style}" title="${tooltip}"><img src="${LOGO[key]}" alt="${title}"><span>${CFG.display.showPercentSymbol ? r+'%' : r}</span></a>`;
 }
 
@@ -369,6 +375,9 @@ function updateStatus(container, text, color = '#ffeb3b') {
 }
 
 function renderRatings(container, data, pageImdbId, type) {
+    // DEBUG
+    console.log('[MDBList] Data received:', data);
+
     const btn = container.querySelector('.mdbl-settings-btn');
     container.innerHTML = ''; 
     
@@ -378,13 +387,22 @@ function renderRatings(container, data, pageImdbId, type) {
     } else renderGearIcon(container, '');
 
     let html = '';
-    const ids = { imdb: data.imdbid || data.imdb_id || pageImdbId, tmdb: data.id || data.tmdbid || data.tmdb_id, trakt: data.traktid || data.trakt_id, slug: data.slug || data.ids?.slug };
+    
+    // Construct IDs safely
+    const ids = { 
+        imdb: data.ids?.imdb || data.imdbid || pageImdbId, 
+        tmdb: data.ids?.tmdb || data.id || data.tmdbid || container.dataset.tmdbId, 
+        trakt: data.ids?.trakt || data.traktid || data.trakt_id, 
+        slug: data.ids?.slug || data.slug 
+    };
+    
+    // Link Generator Wrapper
     const add = (k, v, apiLink, c, tit, kind) => {
-        // Generate robust link here
-        const robustLink = generateRatingLink(k, ids, apiLink, type);
-        html += createRatingHtml(k, v, robustLink, c, tit, kind);
+        const safeLink = generateLink(k, ids, apiLink, type);
+        html += createRatingHtml(k, v, safeLink, c, tit, kind);
     };
 
+    const fallbackSlug = localSlug(data.title || '');
     let masterSum = 0, masterCount = 0;
     const trackMaster = (val, scaleKey) => { if (val !== null && !isNaN(parseFloat(val))) { masterSum += parseFloat(val) * (SCALE[scaleKey] || 1); masterCount++; } };
 
@@ -392,6 +410,7 @@ function renderRatings(container, data, pageImdbId, type) {
         data.ratings.forEach(r => {
             const s = (r.source || '').toLowerCase();
             const v = r.value, c = r.votes || r.count, apiLink = r.url;
+            
             if (s.includes('imdb')) { add('imdb', v, apiLink, c, 'IMDb', 'Votes'); trackMaster(v, 'imdb'); }
             else if (s.includes('tmdb')) { add('tmdb', v, apiLink, c, 'TMDb', 'Votes'); trackMaster(v, 'tmdb'); }
             else if (s.includes('trakt')) { add('trakt', v, apiLink, c, 'Trakt', 'Votes'); trackMaster(v, 'trakt'); }
@@ -450,6 +469,7 @@ function fetchRatings(container, id, type, apiMode) {
         onload: r => {
             container.dataset.fetching = 'false';
             if (r.status !== 200) { 
+                console.error('[MDBList] API Error:', r.status);
                 updateStatus(container, `API ${r.status}`, '#e53935');
                 return;
             }
@@ -457,10 +477,14 @@ function fetchRatings(container, id, type, apiMode) {
                 const d = JSON.parse(r.responseText);
                 localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: d }));
                 renderRatings(container, d, currentImdbId, type);
-            } catch(e) { updateStatus(container, 'Parse Err', '#e53935'); }
+            } catch(e) { 
+                console.error('[MDBList] Parse Error', e); 
+                updateStatus(container, 'Parse Err', '#e53935');
+            }
         },
         onerror: e => { 
             container.dataset.fetching = 'false'; 
+            console.error('[MDBList] Net Error', e); 
             updateStatus(container, 'Net Err', '#e53935');
         }
     });
@@ -472,7 +496,7 @@ function getJellyfinId() {
     return params.get('id');
 }
 
-// === FIX 2: HARD RESET STATE ON URL CHANGE ===
+// === ROBUST ID HUNTER (DOM ONLY - RESTORED v10.1.23 LOGIC) ===
 
 function scan() {
     updateEndsAt();
@@ -503,8 +527,13 @@ function scan() {
 
     if (container.dataset.fetched === 'true') return;
 
+    // Retry Logic
     let retries = parseInt(container.dataset.retries || '0');
-    if (retries > 50) { // Stop after 25s
+    if (retries > 50) {
+        const st = container.querySelector('.mdbl-status-text');
+        if (st && container.dataset.fetched !== 'true' && !st.textContent.includes('Ratings')) {
+             updateStatus(container, 'No ID', '#e53935');
+        }
         return;
     }
     container.dataset.retries = retries + 1;
