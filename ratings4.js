@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.53 — TMDB Only)
+// @name         Jellyfin Ratings (v10.1.53 — Parse Fix & Ebert Restore)
 // @namespace    https://mdblist.com
 // @version      10.1.53
-// @description  Master Rating links. Gear icon first. Scans ONLY for TMDB links to avoid API 405 errors. Fixes Roger Ebert & AniList links.
+// @description  Master Rating links. Gear icon first. Handles non-JSON API errors gracefully. Restores v10.1.12 Roger Ebert linking. Marker-based loading.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
@@ -70,7 +70,6 @@ const LOGO = {
     metacritic_critic: `${ICON_BASE}/Metacritic.png`, metacritic_user: `${ICON_BASE}/mus2.png`
 };
 
-// Dynamic Logos
 const DYNAMIC_LOGO = {
     tomatoes_rotten: `${ICON_BASE}/Rotten_Tomatoes_rotten.png`,
     audience_rotten: `${ICON_BASE}/Rotten_Tomatoes_negative_audience.png`
@@ -84,6 +83,7 @@ const LABEL = {
 };
 
 let CFG = loadConfig();
+let currentImdbId = null;
 
 // GET KEY SAFELY
 const INJ_KEYS = (window.MDBL_KEYS || {});
@@ -169,7 +169,6 @@ function updateGlobalStyles() {
 
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; position: relative; z-index: 10; }
         
-        /* Custom Ends At Placement */
         #customEndsAt { 
             font-size: inherit; opacity: 0.9; cursor: default; 
             margin-left: 14px; display: inline-block; padding: 2px 4px;
@@ -305,9 +304,8 @@ function updateEndsAt() {
         if (!span) {
             span = document.createElement('div');
             span.id = 'customEndsAt';
-            // Insert BEFORE ratings container to maintain order: Official -> Ends At -> Ratings
             const rc = primary.querySelector('.mdblist-rating-container');
-            if (rc) primary.insertBefore(span, rc); 
+            if (rc) primary.insertBefore(span, rc); // Consistent placement
             else primary.appendChild(span);
         }
         span.textContent = `Ends at ${timeStr}`;
@@ -351,27 +349,23 @@ function generateLink(key, ids, apiLink, type, title) {
         case 'anilist': 
             if (ids.anilist) return `https://anilist.co/anime/${ids.anilist}`;
             if (/^\d+$/.test(sLink)) return `https://anilist.co/anime/${sLink}`;
-            // Fallback Search
             return `https://anilist.co/search/anime?search=${safeTitle}`;
             
         case 'myanimelist': 
             if (ids.mal) return `https://myanimelist.net/anime/${ids.mal}`;
             if (/^\d+$/.test(sLink)) return `https://myanimelist.net/anime/${sLink}`;
-            // Fallback Search
             return `https://myanimelist.net/anime.php?q=${safeTitle}`;
             
         case 'roger_ebert':
-             // Force /reviews/ logic + fallback
-             if (sLink && sLink.length > 2 && sLink !== '#') {
-                 if (sLink.startsWith('http')) return sLink;
-                 let path = sLink.startsWith('/') ? sLink : `/${sLink}`;
-                 if (!path.includes('/reviews/')) path = `/reviews${path}`;
-                 return `https://www.rogerebert.com${path}`;
+             // STRICT v10.1.12 LOGIC (Requested)
+             if (sLink && sLink !== '#') {
+                 return fixUrl(sLink, 'rogerebert.com');
              }
-             // Search fallback if empty
-             return `https://www.rogerebert.com/search?q=${safeTitle}`;
+             // Minimal fallback if API link is totally missing
+             return `https://duckduckgo.com/?q=!ducky+site:rogerebert.com/reviews+${safeTitle}`;
 
-        default: return '#';
+        default:
+            return '#';
     }
 }
 
@@ -382,7 +376,7 @@ function createRatingHtml(key, val, link, count, title, kind) {
     const r = Math.round(n);
     const tooltip = (count && count > 0) ? `${title} — ${count.toLocaleString()} ${kind||'Votes'}` : title;
     
-    // DYNAMIC ICON LOGIC
+    // Dynamic Icons
     let currentLogo = LOGO[key];
     if (CFG.display.dynamicIcons) {
         if (key === 'rotten_tomatoes_critic' && r < 60) currentLogo = DYNAMIC_LOGO.tomatoes_rotten;
@@ -496,10 +490,9 @@ function renderRatings(container, data, pageImdbId, type) {
     }
 }
 
-function fetchRatings(container, id, type) {
+function fetchRatings(container, id, type, apiMode) {
     if (container.dataset.fetching === 'true') return;
-    // FIXED: Always use TMDB endpoint (no 405 error)
-    const apiUrl = `https://api.mdblist.com/tmdb/${type}/${id}?apikey=${API_KEY}`;
+    const apiUrl = (apiMode === 'imdb') ? `https://api.mdblist.com/imdb/${id}?apikey=${API_KEY}` : `https://api.mdblist.com/tmdb/${type}/${id}?apikey=${API_KEY}`;
     const cacheKey = `${NS}c_${id}`;
     
     try {
@@ -511,23 +504,29 @@ function fetchRatings(container, id, type) {
     } catch(e) {}
 
     container.dataset.fetching = 'true';
-    updateStatus(container, `Fetching TMDB...`);
+    updateStatus(container, `Fetching...`);
     
     GM_xmlhttpRequest({
         method: 'GET', url: apiUrl,
         onload: r => {
             container.dataset.fetching = 'false';
-            if (r.status !== 200) { 
-                console.error('[MDBList] API Error:', r.status);
-                updateStatus(container, `API ${r.status}`, '#e53935');
+            
+            // HANDLE TEXT RESPONSES GRACEFULLY
+            if (r.status !== 200) {
+                // Try to show the API text message (e.g. "Limit exceeded")
+                let msg = `API ${r.status}`;
+                if (r.responseText && r.responseText.length < 20) msg = r.responseText;
+                console.error('[MDBList] API Error:', r.status, r.responseText);
+                updateStatus(container, msg, '#e53935');
                 return;
             }
+
             try {
                 const d = JSON.parse(r.responseText);
                 localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: d }));
                 renderRatings(container, d, currentImdbId, type);
             } catch(e) { 
-                console.error('[MDBList] Parse Error', e); 
+                console.error('[MDBList] Parse Error. Raw response:', r.responseText); 
                 updateStatus(container, 'Parse Err', '#e53935');
             }
         },
@@ -543,21 +542,24 @@ function fetchRatings(container, id, type) {
 function scan() {
     updateEndsAt();
     
-    // Scan TMDB links
     document.querySelectorAll('a[href*="themoviedb.org/"]:not([data-mdbl-processed])').forEach(link => {
-        link.dataset.mdblProcessed = "true"; // Mark as handled
-        
+        link.dataset.mdblProcessed = "true"; 
         const m = link.href.match(/\/(movie|tv)\/(\d+)/);
         if (m) {
-            const type = m[1] === 'tv' ? 'show' : 'movie';
-            const id = m[2];
-            injectContainer(id, type);
+            injectContainer(m[2], m[1] === 'tv' ? 'show' : 'movie', 'tmdb');
+        }
+    });
+    
+    document.querySelectorAll('a[href*="imdb.com/title/"]:not([data-mdbl-processed])').forEach(link => {
+        link.dataset.mdblProcessed = "true";
+        const m = link.href.match(/tt\d+/);
+        if (m) {
+            injectContainer(m[0], 'movie', 'imdb');
         }
     });
 }
 
-function injectContainer(id, type) {
-    // Find visible wrapper
+function injectContainer(id, type, apiMode) {
     const allWrappers = document.querySelectorAll('.itemMiscInfo');
     let wrapper = null;
     for (const el of allWrappers) {
@@ -565,11 +567,9 @@ function injectContainer(id, type) {
     }
     if (!wrapper) return;
 
-    // Placement Strategy: After Official Rating
     let target = wrapper.querySelector('.mediaInfoOfficialRating');
-    
     let container = wrapper.querySelector('.mdblist-rating-container');
-    // If container exists but ID changed (or recycled), wipe it
+    
     if (container && container.dataset.tmdbId !== id) {
         container.remove();
         container = null;
@@ -580,15 +580,11 @@ function injectContainer(id, type) {
         container.className = 'mdblist-rating-container';
         container.dataset.tmdbId = id;
         
-        if (target) {
-            // Insert after Official Rating
-            target.parentNode.insertBefore(container, target.nextSibling);
-        } else {
-            wrapper.appendChild(container);
-        }
+        if (target) target.parentNode.insertBefore(container, target.nextSibling);
+        else wrapper.appendChild(container);
         
         renderGearIcon(container, 'Loading...');
-        fetchRatings(container, id, type);
+        fetchRatings(container, id, type, apiMode);
     }
 }
 
