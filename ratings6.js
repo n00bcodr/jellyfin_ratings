@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.6 — Wide Sliders & Click Fix)
+// @name         Jellyfin Ratings (v10.1.7 — Full Width Sliders)
 // @namespace    https://mdblist.com
-// @version      10.1.6
-// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Fixed Slider ranges (+/- 500px/300px), wider menu, and button clickability.
+// @version      10.1.7
+// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Sliders now stretch to fill the full menu width.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.6 loading...');
+console.log('[Jellyfin Ratings] v10.1.7 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -144,7 +144,7 @@ function updateGlobalStyles() {
     document.documentElement.style.setProperty('--mdbl-y', `${CFG.display.posY}px`);
 
     let rules = `
-        /* Main Container: High Z-Index to stay on top */
+        /* Main Container */
         .mdblist-rating-container {
             display: flex; flex-wrap: wrap; align-items: center;
             justify-content: flex-end; 
@@ -169,22 +169,15 @@ function updateGlobalStyles() {
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; transition: filter 0.2s; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
         
-        /* Settings Button: Enforced clickability */
         .mdbl-settings-btn {
             opacity: 0.6; margin-left: 8px; border-left: 1px solid rgba(255,255,255,0.2); 
-            padding: 4px 8px; /* Larger hit area */
-            cursor: pointer !important;
-            pointer-events: auto !important;
+            padding: 4px 8px; cursor: pointer !important; pointer-events: auto !important;
         }
         .mdbl-settings-btn:hover { opacity: 1; transform: scale(1.1); }
         .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; pointer-events: none; }
         
-        /* Ensure metadata area is visible */
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { 
-            overflow: visible !important; 
-            contain: none !important;
-            position: relative;
-            z-index: 10; 
+            overflow: visible !important; contain: none !important; position: relative; z-index: 10; 
         }
         
         #customEndsAt { 
@@ -544,8 +537,12 @@ function getJellyfinColor() {
 function initMenu() {
     if(document.getElementById('mdbl-panel')) return;
 
+    // Changes: 
+    // 1. Panel width 600px
+    // 2. Removed --mdbl-right-col-wide variable dependency for layout (switched to flex)
+    // 3. Sliders set to flex: 1 to fill available space
     const css = `
-    :root { --mdbl-right-col: 48px; --mdbl-right-col-wide: 420px; }
+    :root { --mdbl-right-col: 48px; }
     #mdbl-panel { position:fixed; right:16px; bottom:70px; width:600px; max-height:90vh; overflow:auto; border-radius:14px;
         border:1px solid rgba(255,255,255,0.15); background:rgba(22,22,26,0.94); backdrop-filter:blur(8px);
         color:#eaeaea; z-index:100000; box-shadow:0 20px 40px rgba(0,0,0,0.45); display:none; font-family: sans-serif; }
@@ -562,14 +559,22 @@ function initMenu() {
     
     #mdbl-panel .mdbl-row, #mdbl-panel .mdbl-source { display:grid; grid-template-columns:1fr var(--mdbl-right-col); align-items:center; gap:10px; padding:8px 10px; border-radius:12px; }
     #mdbl-panel .mdbl-row { background:transparent; border:1px solid rgba(255,255,255,0.06); min-height: 48px; box-sizing:border-box; }
-    #mdbl-panel .mdbl-row.wide { grid-template-columns:1fr var(--mdbl-right-col-wide); }
+    
+    /* === SLIDER ROW LAYOUT FIX === */
+    #mdbl-panel .mdbl-row.wide { display: flex !important; justify-content: space-between; gap: 15px; }
+    #mdbl-panel .mdbl-row.wide > span { white-space: nowrap; width: 110px; flex-shrink: 0; }
+    #mdbl-panel .mdbl-row.wide .grid-right { flex: 1; display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
     
     /* Theme Sync */
     #mdbl-panel input[type="checkbox"] { 
         transform: scale(1.2); cursor: pointer; 
         accent-color: var(--mdbl-theme); 
     }
-    #mdbl-panel input[type="range"] { flex: 1; margin: 0 12px; cursor: pointer; accent-color: var(--mdbl-theme); }
+    #mdbl-panel input[type="range"] { 
+        flex: 1; /* Stretch slider */
+        margin: 0; cursor: pointer; accent-color: var(--mdbl-theme); 
+        width: auto;
+    }
     
     #mdbl-panel input[type="text"] { width:100%; padding:10px 0; border:0; background:transparent; color:#eaeaea; font-size:14px; outline:none; }
     
@@ -610,7 +615,7 @@ function initMenu() {
     #mdbl-panel .mdbl-actions .mdbl-grow { flex:1; }
     #mdbl-panel .mdbl-actions .mdbl-compact { display:inline-flex; align-items:center; gap:6px; opacity:0.95; }
     
-    #mdbl-panel[data-compact="1"] { --mdbl-right-col:44px; --mdbl-right-col-wide:340px; width:500px; }
+    #mdbl-panel[data-compact="1"] { --mdbl-right-col:44px; width:500px; }
     #mdbl-panel[data-compact="1"] header { padding:6px 12px; }
     #mdbl-panel[data-compact="1"] .mdbl-section { padding:2px 12px; gap:2px; }
     #mdbl-panel[data-compact="1"] .mdbl-row, #mdbl-panel[data-compact="1"] .mdbl-source { gap:5px; padding:2px 6px; border-radius:6px; min-height: 32px; }
@@ -624,7 +629,7 @@ function initMenu() {
         #mdbl-panel, #mdbl-panel[data-compact="1"] {
             width: 96% !important; left: 2% !important; right: 2% !important; bottom: 10px !important; top: auto !important;
             transform: none !important; max-height: 80vh;
-            --mdbl-right-col: 40px; --mdbl-right-col-wide: 140px;
+            --mdbl-right-col: 40px; 
         }
         #mdbl-panel header { cursor: default; }
         #mdbl-panel .mdbl-row, #mdbl-panel .mdbl-source { min-height: 42px; padding: 4px 8px; }
@@ -699,14 +704,14 @@ function renderMenuContent(panel) {
         
         <div class="mdbl-row wide">
             <span>Position X (px)</span>
-            <div class="grid-right" style="flex:1; display:flex; justify-content:flex-end; align-items:center; gap:8px;">
+            <div class="grid-right">
             <input type="range" id="d_x_rng" min="-500" max="500" value="${CFG.display.posX}">
             <input type="number" id="d_x_num" value="${CFG.display.posX}" class="mdbl-pos-input">
             </div>
         </div>
         <div class="mdbl-row wide">
             <span>Position Y (px)</span>
-            <div class="grid-right" style="flex:1; display:flex; justify-content:flex-end; align-items:center; gap:8px;">
+            <div class="grid-right">
             <input type="range" id="d_y_rng" min="-300" max="300" value="${CFG.display.posY}">
             <input type="number" id="d_y_num" value="${CFG.display.posY}" class="mdbl-pos-input">
             </div>
