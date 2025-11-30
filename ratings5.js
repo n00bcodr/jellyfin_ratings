@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.2.0 — Optimized & Resizable)
+// @name         Jellyfin Ratings (v10.2.1 — Interaction Fix)
 // @namespace    https://mdblist.com
-// @version      10.2.0
-// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Optimized code structure. Resizable Menu.
+// @version      10.2.1
+// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon forced first. Robust menu clicking.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.2.0 loading...');
+console.log('[Jellyfin Ratings] v10.2.1 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -90,7 +90,7 @@ function loadConfig() {
         const raw = localStorage.getItem(`${NS}prefs`);
         if (!raw) return JSON.parse(JSON.stringify(DEFAULTS));
         const p = JSON.parse(raw);
-        // Force clamp limits on load
+        // Force clamp limits on load: X(-700, 500), Y(-500, 500)
         if(p.display) {
             p.display.posX = Math.max(-700, Math.min(500, parseInt(p.display.posX) || 0));
             p.display.posY = Math.max(-500, Math.min(500, parseInt(p.display.posY) || 0));
@@ -141,6 +141,7 @@ const CSS_MAIN = `
     .mdbl-settings-btn {
         opacity: 0.6; margin-right: 8px; border-right: 1px solid rgba(255,255,255,0.2);
         padding: 4px 8px 4px 0; cursor: pointer !important; pointer-events: auto !important;
+        order: -9999 !important; /* Force First Position */
     }
     .mdbl-settings-btn:hover { opacity: 1; transform: scale(1.1); }
     .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; pointer-events: none; }
@@ -153,6 +154,7 @@ const CSS_MAIN = `
         margin-left: 10px; display: inline-block; vertical-align: baseline;
         pointer-events: auto; position: relative; z-index: 9999; padding: 2px 4px;
     }
+    /* Hide Default Jellyfin Ratings */
     .starRatingContainer, .mediaInfoOfficialRating, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating {
         display: none !important;
     }
@@ -166,8 +168,7 @@ const CSS_MENU = `
         border:1px solid rgba(255,255,255,0.15); background:rgba(22,22,26,0.94); 
         backdrop-filter:blur(8px); color:#eaeaea; z-index:2147483647; 
         box-shadow:0 20px 40px rgba(0,0,0,0.45); display:none; font-family: sans-serif;
-        resize: both; /* Enable Resizing */
-        min-width: 350px; min-height: 200px;
+        resize: both; min-width: 350px; min-height: 200px;
     }
     #mdbl-panel header { 
         position:sticky; top:0; background:rgba(22,22,26,0.98); padding:6px 12px; 
@@ -282,7 +283,6 @@ function updateEndsAt() {
     if (!primary) return;
 
     let minutes = 0;
-    // Optimized: Only scan text nodes if we find a container
     const detailContainer = primary.closest('.detailRibbon') || primary.closest('.mainDetailButtons') || primary.parentNode;
     if (detailContainer) {
         const walker = document.createTreeWalker(detailContainer, NodeFilter.SHOW_TEXT, null, false);
@@ -291,12 +291,11 @@ function updateEndsAt() {
             const val = node.nodeValue.trim();
             if (val.length > 0 && val.length < 20 && /\d/.test(val)) {
                 const p = parseRuntimeToMinutes(val);
-                if (p > 0) { minutes = p; break; } // Stop immediately on finding runtime
+                if (p > 0) { minutes = p; break; } 
             }
         }
     }
     
-    // Hide original "Ends at"
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
         if (el.id === 'customEndsAt' || el.closest('.mdblist-rating-container')) return;
         const t = (el.textContent || '').toLowerCase();
@@ -337,11 +336,11 @@ function createRatingHtml(key, val, link, count, title) {
 }
 
 function renderRatings(container, data, pageImdbId, type) {
-    let html = `<div class="mdbl-rating-item mdbl-settings-btn" title="Settings" onclick="event.preventDefault();event.stopPropagation();window.MDBL_OPEN_SETTINGS_GL();">
+    // Gear Icon HTML
+    let html = `<div class="mdbl-rating-item mdbl-settings-btn" title="Settings">
        <svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg></div>`;
 
     const ids = { imdb: data.imdbid||data.imdb_id||pageImdbId, tmdb: data.id||data.tmdbid||container.dataset.tmdbId, trakt: data.traktid };
-    const metaType = type === 'show' ? 'tv' : 'movie';
     let mSum = 0, mCount = 0;
 
     data.ratings?.forEach(r => {
@@ -374,7 +373,14 @@ function renderRatings(container, data, pageImdbId, type) {
     refreshDomElements();
 }
 
-window.MDBL_OPEN_SETTINGS_GL = () => initMenu() || window.MDBL_OPEN_SETTINGS();
+// Global Event Listener for Menu Interaction (Interactivity Fix)
+document.addEventListener('click', (e) => {
+    if (e.target.closest('.mdbl-settings-btn')) {
+        e.preventDefault(); e.stopPropagation();
+        initMenu(); 
+        if(window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
+    }
+});
 
 function fetchRatings(container, tmdbId, type) {
     const cacheKey = `${NS}c_${tmdbId}`;
@@ -402,7 +408,6 @@ function scan() {
     }
     updateEndsAt();
     
-    // Check IMDB ID
     const imdbLink = document.querySelector('a[href*="imdb.com/title/"]');
     if (imdbLink) {
         const m = imdbLink.href.match(/tt\d+/);
@@ -412,7 +417,6 @@ function scan() {
         }
     }
 
-    // Find Jellyfin Items
     document.querySelectorAll('a[href*="themoviedb.org/"]').forEach(a => {
         const m = a.href.match(/\/(movie|tv)\/(\d+)/);
         if (m) {
@@ -434,7 +438,7 @@ setInterval(scan, 500);
    5. SETTINGS MENU UI
 ========================================================================== */
 function initMenu() {
-    if(document.getElementById('mdbl-panel')) { window.MDBL_OPEN_SETTINGS(); return; }
+    if(document.getElementById('mdbl-panel')) return;
     
     const style = document.createElement('style');
     style.textContent = CSS_MENU;
@@ -444,13 +448,11 @@ function initMenu() {
     panel.id = 'mdbl-panel';
     document.body.appendChild(panel);
 
-    // Draggable Logic
     let isDrag = false, startX, startY, startLeft, startTop;
     panel.addEventListener('mousedown', (e) => {
-        // Prevent drag when clicking inputs, scrollbars, or resize handle area (bottom right)
         if (['INPUT','SELECT','BUTTON'].includes(e.target.tagName)) return;
         const rect = panel.getBoundingClientRect();
-        if (e.clientX > rect.right - 20 && e.clientY > rect.bottom - 20) return; // Allow resize handle usage
+        if (e.clientX > rect.right - 20 && e.clientY > rect.bottom - 20) return;
 
         isDrag = true; 
         startX = e.clientX; startY = e.clientY;
@@ -464,7 +466,6 @@ function initMenu() {
     });
     document.addEventListener('mouseup', () => isDrag = false);
     
-    // Close on click outside
     document.addEventListener('mousedown', (e) => {
         if (panel.style.display === 'block' && !panel.contains(e.target) && !e.target.closest('.mdbl-settings-btn') && e.target.id !== 'customEndsAt') {
             panel.style.display = 'none';
@@ -472,14 +473,12 @@ function initMenu() {
     });
 
     window.MDBL_OPEN_SETTINGS = () => {
-        // Get Jellyfin theme color
         const btn = document.querySelector('.button-submit, .btnPlay, .main-button');
         const col = btn ? window.getComputedStyle(btn).backgroundColor : '#2a6df4';
         panel.style.setProperty('--mdbl-theme', col !== 'rgba(0, 0, 0, 0)' ? col : '#2a6df4');
         renderMenuContent(panel);
         panel.style.display = 'block';
     };
-    window.MDBL_OPEN_SETTINGS();
 }
 
 function renderMenuContent(panel) {
@@ -519,7 +518,6 @@ function renderMenuContent(panel) {
          sList.appendChild(div);
     });
 
-    // Event Binding
     panel.querySelector('#mdbl-close').onclick = () => panel.style.display = 'none';
     
     const update = () => {
@@ -551,7 +549,6 @@ function renderMenuContent(panel) {
     bindPos('d_x_rng', 'd_x_num', 'posX'); bindPos('d_y_rng', 'd_y_num', 'posY');
     panel.querySelectorAll('input[type="number"]').forEach(i => i.addEventListener('input', update));
 
-    // Drag Sort
     let dragSrc;
     panel.querySelectorAll('.mdbl-source').forEach(row => {
         row.addEventListener('dragstart', e => { dragSrc = row; e.dataTransfer.effectAllowed = 'move'; });
