@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.29 — Persistent UI Fix)
+// @name         Jellyfin Ratings (v10.1.31 — Persistent Logic)
 // @namespace    https://mdblist.com
-// @version      10.1.29
-// @description  Master Rating links to Wikipedia. Gear icon first. Fixes disappearing status text.
+// @version      10.1.31
+// @description  Master Rating links to Wikipedia. Gear icon first. Hides default ratings. Restored v10.1.23 detection logic with fixed UI persistence.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.29 loading...');
+console.log('[Jellyfin Ratings] v10.1.31 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -164,7 +164,7 @@ function updateGlobalStyles() {
         
         .mdbl-status-text {
             font-size: 11px; opacity: 0.8; margin-left: 5px; color: #ffeb3b;
-            white-space: nowrap;
+            white-space: nowrap; font-family: monospace;
         }
 
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; position: relative; z-index: 10; }
@@ -323,32 +323,31 @@ function createRatingHtml(key, val, link, count, title, kind) {
 }
 
 function renderGearIcon(container, statusText = '') {
-    if (container.querySelector('.mdbl-settings-btn')) {
-        const st = container.querySelector('.mdbl-status-text');
-        if(st && statusText) st.textContent = statusText;
-        return;
+    // Ensure we don't duplicate button
+    if (!container.querySelector('.mdbl-settings-btn')) {
+        const btn = document.createElement('div');
+        btn.className = 'mdbl-rating-item mdbl-settings-btn';
+        btn.title = 'Settings';
+        btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>';
+        btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
+        container.appendChild(btn);
     }
     
-    // Create Button
-    const btn = document.createElement('div');
-    btn.className = 'mdbl-rating-item mdbl-settings-btn';
-    btn.title = 'Settings';
-    btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>';
-    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
-
-    // Create Status
-    const status = document.createElement('span');
-    status.className = 'mdbl-status-text';
-    status.textContent = statusText || '...';
-
-    container.appendChild(btn);
-    container.appendChild(status);
+    // Ensure we don't duplicate status
+    let st = container.querySelector('.mdbl-status-text');
+    if (!st) {
+        st = document.createElement('span');
+        st.className = 'mdbl-status-text';
+        container.appendChild(st);
+    }
+    st.textContent = statusText;
+    
     updateGlobalStyles();
 }
 
 function updateStatus(container, text, color = '#ffeb3b') {
-    // FIX: If container was cleared, re-render basic structure first
-    if (!container.querySelector('.mdbl-status-text')) {
+    // IMPORTANT FIX: Recreate basic structure if it was wiped
+    if (!container.querySelector('.mdbl-settings-btn')) {
         renderGearIcon(container, text);
     }
     const st = container.querySelector('.mdbl-status-text');
@@ -356,17 +355,19 @@ function updateStatus(container, text, color = '#ffeb3b') {
 }
 
 function renderRatings(container, data, pageImdbId, type) {
-    // 1. Wipe content but handle persistence
+    // 1. Clear but protect gear icon
+    const btn = container.querySelector('.mdbl-settings-btn');
     container.innerHTML = ''; 
     
-    // 2. Re-add Gear Button
-    const btn = document.createElement('div');
-    btn.className = 'mdbl-rating-item mdbl-settings-btn';
-    btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>';
-    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
-    container.appendChild(btn);
+    if(btn) {
+        container.appendChild(btn);
+        // Event listeners are lost on innerHTML clear, recreate them or just recreate button
+        btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
+    } else {
+        renderGearIcon(container, '');
+    }
 
-    // 3. Process Ratings
+    // 2. Add Ratings
     let html = '';
     const add = (k, v, lnk, cnt, tit, kind) => html += createRatingHtml(k, v, lnk, cnt, tit, kind);
     const ids = { imdb: data.imdbid || data.imdb_id || pageImdbId, tmdb: data.id || data.tmdbid || data.tmdb_id, trakt: data.traktid || data.trakt_id, slug: data.slug || data.ids?.slug };
@@ -408,8 +409,8 @@ function renderRatings(container, data, pageImdbId, type) {
         while (contentDiv.firstChild) container.appendChild(contentDiv.firstChild);
         refreshDomElements();
     } else {
-        // Explicitly Re-Add status if empty
-        updateStatus(container, '0 Ratings Found', '#e53935');
+        // Explicitly show No Data status
+        updateStatus(container, 'N/A', '#aaa');
     }
 }
 
@@ -427,7 +428,7 @@ function fetchRatings(container, id, type, apiMode) {
     } catch(e) {}
 
     container.dataset.fetching = 'true';
-    updateStatus(container, `Fetching ${apiMode.toUpperCase()}...`);
+    updateStatus(container, 'Fetching...');
     
     GM_xmlhttpRequest({
         method: 'GET', url: apiUrl,
@@ -435,7 +436,7 @@ function fetchRatings(container, id, type, apiMode) {
             container.dataset.fetching = 'false';
             if (r.status !== 200) { 
                 console.error('[MDBList] API Error:', r.status);
-                updateStatus(container, `API Error ${r.status}`, '#e53935');
+                updateStatus(container, `API ${r.status}`, '#e53935');
                 return;
             }
             try {
@@ -444,13 +445,13 @@ function fetchRatings(container, id, type, apiMode) {
                 renderRatings(container, d, currentImdbId, type);
             } catch(e) { 
                 console.error('[MDBList] Parse Error', e); 
-                updateStatus(container, 'Parse Error', '#e53935');
+                updateStatus(container, 'Parse Err', '#e53935');
             }
         },
         onerror: e => { 
             container.dataset.fetching = 'false'; 
             console.error('[MDBList] Net Error', e); 
-            updateStatus(container, 'Net Error', '#e53935');
+            updateStatus(container, 'Net Err', '#e53935');
         }
     });
 }
@@ -461,7 +462,7 @@ function getJellyfinId() {
     return params.get('id');
 }
 
-// === ROBUST ID HUNTER (DOM ONLY) ===
+// === ROBUST ID HUNTER (DOM ONLY - RESTORED v10.1.23 LOGIC) ===
 
 function scan() {
     updateEndsAt();
@@ -480,6 +481,7 @@ function scan() {
         renderGearIcon(container, 'Scanning...');
         container.dataset.retries = 0; 
     } else if (container.dataset.jellyfinId !== currentJellyfinId) {
+        // Reset Logic on Navigation
         container.innerHTML = '';
         renderGearIcon(container, 'Scanning...');
         container.dataset.jellyfinId = currentJellyfinId;
@@ -493,9 +495,11 @@ function scan() {
 
     // Retry Logic
     let retries = parseInt(container.dataset.retries || '0');
-    if (retries > 20) {
-        if (!container.querySelector('.mdbl-status-text').textContent.includes('No ID')) {
-             updateStatus(container, 'No ID found', '#e53935');
+    // Keep trying for 50 cycles (25 seconds) to catch delayed Jellyfin rendering
+    if (retries > 50) {
+        const st = container.querySelector('.mdbl-status-text');
+        if (st && st.textContent === 'Scanning...') {
+             updateStatus(container, 'No ID', '#e53935');
         }
         return;
     }
@@ -503,7 +507,7 @@ function scan() {
 
     let type = 'movie', id = null, mode = 'tmdb';
     
-    // 1. TMDB
+    // v10.1.23 STYLE DOM SCAN (All links)
     for (let i = 0; i < document.links.length; i++) {
         const href = document.links[i].href;
         if (href.includes('themoviedb.org')) {
@@ -511,7 +515,7 @@ function scan() {
             if (m) { type = m[1] === 'tv' ? 'show' : 'movie'; id = m[2]; mode = 'tmdb'; break; }
         }
     }
-    // 2. IMDb
+    // IMDb Fallback
     if (!id) {
         for (let i = 0; i < document.links.length; i++) {
             const href = document.links[i].href;
@@ -523,9 +527,11 @@ function scan() {
     }
 
     if (id) {
-        container.dataset.tmdbId = id;
-        container.dataset.fetched = 'true';
-        fetchRatings(container, id, type, mode);
+        if (container.dataset.tmdbId !== id) {
+            container.dataset.tmdbId = id;
+            container.dataset.fetched = 'true';
+            fetchRatings(container, id, type, mode);
+        }
     }
 }
 
