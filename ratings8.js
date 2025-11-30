@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.8 — Compact & Wide Sliders)
+// @name         Jellyfin Ratings (v10.1.9 — Layout Rewrite)
 // @namespace    https://mdblist.com
-// @version      10.1.8
-// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Compact Mode only. Wide Flexbox Sliders.
+// @version      10.1.9
+// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Compact Mode default. Fixed layout for wide sliders.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.8 loading...');
+console.log('[Jellyfin Ratings] v10.1.9 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -102,12 +102,14 @@ function loadConfig() {
         if (p.display && (isNaN(parseInt(p.display.posX)) || isNaN(parseInt(p.display.posY)))) {
             p.display.posX = 0; p.display.posY = 0;
         }
-        
-        // Enforce Limits on Load
-        if(p.display.posX > 500) p.display.posX = 500;
-        if(p.display.posX < -500) p.display.posX = -500;
-        if(p.display.posY > 400) p.display.posY = 400;
-        if(p.display.posY < -400) p.display.posY = -400;
+
+        // --- FORCE CLAMP VALUES ON LOAD ---
+        // This ensures your old "1000" setting is instantly corrected
+        if (p.display.posX > 500) p.display.posX = 500;
+        if (p.display.posX < -500) p.display.posX = -500;
+        if (p.display.posY > 400) p.display.posY = 400;
+        if (p.display.posY < -400) p.display.posY = -400;
+        // ----------------------------------
 
         return {
             sources: { ...DEFAULTS.sources, ...p.sources },
@@ -543,7 +545,10 @@ function getJellyfinColor() {
 function initMenu() {
     if(document.getElementById('mdbl-panel')) return;
 
-    // Changes: Fixed Flexbox layout for slider rows to enable stretching
+    // Changes: 
+    // - New CSS class .mdbl-slider-row
+    // - Flexbox layout specifically for sliders
+    // - Removed compact toggle logic
     const css = `
     :root { --mdbl-right-col: 48px; }
     #mdbl-panel { position:fixed; right:16px; bottom:70px; width:500px; max-height:90vh; overflow:auto; border-radius:14px;
@@ -563,10 +568,27 @@ function initMenu() {
     #mdbl-panel .mdbl-row, #mdbl-panel .mdbl-source { display:grid; grid-template-columns:1fr var(--mdbl-right-col); align-items:center; gap:5px; padding:2px 6px; border-radius:6px; min-height: 32px; }
     #mdbl-panel .mdbl-row { background:transparent; border:1px solid rgba(255,255,255,0.06); box-sizing:border-box; }
     
-    /* === SLIDER ROW LAYOUT FIX (FLEXBOX) === */
-    #mdbl-panel .mdbl-row.wide { display: flex !important; justify-content: space-between; gap: 15px; }
-    #mdbl-panel .mdbl-row.wide > span { white-space: nowrap; width: 110px; flex-shrink: 0; }
-    #mdbl-panel .mdbl-row.wide .grid-right { flex: 1; display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+    /* === NEW SLIDER LAYOUT CLASS === */
+    .mdbl-slider-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 15px;
+        padding: 4px 6px;
+        border-radius: 6px;
+        background: transparent; 
+        border: 1px solid rgba(255,255,255,0.06);
+        min-height: 32px;
+    }
+    .mdbl-slider-row > span { white-space: nowrap; width: 110px; flex-shrink: 0; }
+    .mdbl-slider-row .slider-wrapper {
+        flex-grow: 1;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        justify-content: flex-end;
+        width: 100%;
+    }
     
     /* Theme Sync */
     #mdbl-panel input[type="checkbox"] { 
@@ -574,9 +596,9 @@ function initMenu() {
         accent-color: var(--mdbl-theme); 
     }
     #mdbl-panel input[type="range"] { 
-        flex: 1; /* Stretch slider */
+        flex-grow: 1; /* Force stretch */
+        width: 100%;  /* Ensure it fills flex container */
         margin: 0; cursor: pointer; accent-color: var(--mdbl-theme); 
-        width: 100%;
     }
     
     #mdbl-panel input[type="text"] { width:100%; padding:10px 0; border:0; background:transparent; color:#eaeaea; font-size:14px; outline:none; }
@@ -670,7 +692,18 @@ function initMenu() {
 initMenu();
 
 function renderMenuContent(panel) {
-    const row = (label, input, wide) => `<div class="mdbl-row ${wide?'wide':''}"><span>${label}</span>${wide ? `<div class="grid-right">${input}</div>` : input}</div>`;
+    const row = (label, input) => `<div class="mdbl-row"><span>${label}</span>${input}</div>`;
+    
+    // NEW: Function specifically for the Wide Slider Rows
+    const sliderRow = (label, idRange, idNum, min, max, val) => `
+    <div class="mdbl-slider-row">
+        <span>${label}</span>
+        <div class="slider-wrapper">
+            <input type="range" id="${idRange}" min="${min}" max="${max}" value="${val}">
+            <input type="number" id="${idNum}" value="${val}" class="mdbl-pos-input">
+        </div>
+    </div>
+    `;
     
     let html = `
     <header>
@@ -692,20 +725,8 @@ function renderMenuContent(panel) {
         ${row('Show %', `<input type="checkbox" id="d_pct" ${CFG.display.showPercentSymbol?'checked':''}>`)}
         ${row('Enable 24h format', `<input type="checkbox" id="d_24h" ${CFG.display.endsAt24h?'checked':''}>`)}
         
-        <div class="mdbl-row wide">
-            <span>Position X (px)</span>
-            <div class="grid-right">
-            <input type="range" id="d_x_rng" min="-500" max="500" value="${CFG.display.posX}">
-            <input type="number" id="d_x_num" value="${CFG.display.posX}" class="mdbl-pos-input">
-            </div>
-        </div>
-        <div class="mdbl-row wide">
-            <span>Position Y (px)</span>
-            <div class="grid-right">
-            <input type="range" id="d_y_rng" min="-400" max="400" value="${CFG.display.posY}">
-            <input type="number" id="d_y_num" value="${CFG.display.posY}" class="mdbl-pos-input">
-            </div>
-        </div>
+        ${sliderRow('Position X (px)', 'd_x_rng', 'd_x_num', -500, 500, CFG.display.posX)}
+        ${sliderRow('Position Y (px)', 'd_y_rng', 'd_y_num', -400, 400, CFG.display.posY)}
 
         <hr>
         
