@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.40 — Universal Link Fix)
+// @name         Jellyfin Ratings (v10.1.41 — Popcorn Fix)
 // @namespace    https://mdblist.com
-// @version      10.1.40
-// @description  Master Rating links to Wikipedia. Gear icon first. Hides default ratings. Generates valid links for ALL sources (RT, MC, Letterboxd, etc.). Stable loading.
+// @version      10.1.41
+// @description  Master Rating links to Wikipedia. Gear icon first. Hides default ratings. Fixes missing Rotten Tomatoes Audience (Popcorn) score.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.40 loading...');
+console.log('[Jellyfin Ratings] v10.1.41 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -317,7 +317,6 @@ function updateEndsAt() {
 function generateLink(key, ids, apiLink, type) {
     const sApiLink = String(apiLink || '');
     
-    // Helper for absolute URLs
     if (sApiLink.startsWith('http')) return sApiLink;
 
     switch(key) {
@@ -328,19 +327,18 @@ function generateLink(key, ids, apiLink, type) {
         case 'trakt': 
             return ids.trakt ? `https://trakt.tv/${type}s/${ids.trakt}` : (ids.imdb ? `https://trakt.tv/search/imdb/${ids.imdb}` : '#');
         case 'letterboxd': 
-            // Letterboxd API often sends "/film/slug" or relative
             if (sApiLink.includes('/film/') || sApiLink.includes('/slug/')) {
                 return `https://letterboxd.com${sApiLink.startsWith('/') ? '' : '/'}${sApiLink}`;
             }
             return ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : '#';
         case 'rotten_tomatoes_critic':
         case 'rotten_tomatoes_audience': 
+            // Handle specific RT paths
             if (sApiLink.startsWith('/')) return `https://www.rottentomatoes.com${sApiLink}`;
             if (sApiLink.length > 2) return `https://www.rottentomatoes.com/m/${sApiLink}`;
             return '#';
         case 'metacritic_critic':
         case 'metacritic_user': 
-            // Metacritic often sends "/movie/slug"
             if (sApiLink.startsWith('/')) return `https://www.metacritic.com${sApiLink}`;
             return '#';
         case 'roger_ebert':
@@ -401,9 +399,6 @@ function updateStatus(container, text, color = '#ffeb3b') {
 }
 
 function renderRatings(container, data, pageImdbId, type) {
-    // DEBUG
-    console.log('[MDBList] Data received:', data);
-
     const btn = container.querySelector('.mdbl-settings-btn');
     container.innerHTML = ''; 
     
@@ -420,8 +415,7 @@ function renderRatings(container, data, pageImdbId, type) {
         trakt: data.ids?.trakt || data.traktid || data.trakt_id, 
         slug: data.ids?.slug || data.slug 
     };
-
-    // Link Generator Wrapper
+    
     const add = (k, v, apiLink, c, tit, kind) => {
         const safeLink = generateLink(k, ids, apiLink, type);
         html += createRatingHtml(k, v, safeLink, c, tit, kind);
@@ -440,7 +434,9 @@ function renderRatings(container, data, pageImdbId, type) {
             else if (s.includes('tmdb')) { add('tmdb', v, apiLink, c, 'TMDb', 'Votes'); trackMaster(v, 'tmdb'); }
             else if (s.includes('trakt')) { add('trakt', v, apiLink, c, 'Trakt', 'Votes'); trackMaster(v, 'trakt'); }
             else if (s.includes('letterboxd')) { add('letterboxd', v, apiLink, c, 'Letterboxd', 'Votes'); trackMaster(v, 'letterboxd'); }
-            else if (s.includes('tomatoes') || s.includes('rotten')) {
+            
+            // FIX: Include POPCORN for audience score
+            else if (s.includes('tomatoes') || s.includes('rotten') || s.includes('popcorn')) {
                 if(s.includes('audience') || s.includes('popcorn')) { add('rotten_tomatoes_audience', v, apiLink, c, 'RT Audience', 'Ratings'); trackMaster(v, 'rotten_tomatoes_audience'); }
                 else { add('rotten_tomatoes_critic', v, apiLink, c, 'RT Critic', 'Reviews'); trackMaster(v, 'rotten_tomatoes_critic'); }
             }
@@ -456,7 +452,7 @@ function renderRatings(container, data, pageImdbId, type) {
         if (masterCount > 0) {
             const avg = masterSum / masterCount;
             const wikiUrl = `https://duckduckgo.com/?q=!ducky+site:en.wikipedia.org+${encodeURIComponent(data.title || '')}+${(data.year || '')}+${type === 'movie' ? 'film' : 'TV series'}`;
-            add('master', avg, wikiUrl, masterCount, 'Master Rating', 'Sources');
+            html += createRatingHtml('master', avg, wikiUrl, masterCount, 'Master Rating', 'Sources');
         }
         
         const contentDiv = document.createElement('span');
@@ -520,7 +516,7 @@ function getJellyfinId() {
     return params.get('id');
 }
 
-// === ROBUST ID HUNTER (DOM ONLY - RESTORED v10.1.23 LOGIC) ===
+// === ROBUST ID HUNTER ===
 
 function scan() {
     updateEndsAt();
@@ -550,7 +546,6 @@ function scan() {
 
     if (container.dataset.fetched === 'true') return;
 
-    // Retry Logic
     let retries = parseInt(container.dataset.retries || '0');
     if (retries > 50) {
         const st = container.querySelector('.mdbl-status-text');
