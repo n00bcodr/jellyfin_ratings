@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.19 — Strict ID Enforcement)
+// @name         Jellyfin Ratings (v10.1.20 — Visibility Targeting)
 // @namespace    https://mdblist.com
-// @version      10.1.19
-// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings but keeps Parental Rating. Strict ID matching to fix SPA navigation.
+// @version      10.1.20
+// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings but keeps Parental Rating. Targets ONLY visible elements.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.19 loading...');
+console.log('[Jellyfin Ratings] v10.1.20 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -293,8 +293,17 @@ function parseRuntimeToMinutes(text) {
 }
 
 function updateEndsAt() {
-    const primary = document.querySelector('.itemMiscInfo.itemMiscInfo-primary') || document.querySelector('.itemMiscInfo');
-    if (!primary || !document.body.contains(primary)) return; 
+    // VISIBILITY CHECK: Find the FIRST Visible itemMiscInfo
+    const allWrappers = document.querySelectorAll('.itemMiscInfo');
+    let primary = null;
+    for (const el of allWrappers) {
+        if (el.offsetParent !== null) { // Is visible?
+            primary = el;
+            break;
+        }
+    }
+    
+    if (!primary) return; 
 
     let minutes = 0;
     const detailContainer = primary.closest('.detailRibbon') || primary.closest('.mainDetailButtons') || primary.parentNode;
@@ -311,17 +320,21 @@ function updateEndsAt() {
         }
     }
     
-    document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
-        if (el.id === 'customEndsAt') return;
-        if (el.classList.contains('mdblist-rating-container') || el.closest('.mdblist-rating-container')) return;
-        if (el.classList.contains('mediaInfoOfficialRating')) return;
-        
-        const t = (el.textContent || '').toLowerCase();
-        if (t.includes('ends at') || t.includes('endet um') || t.includes('endet am')) {
-             if (minutes > 0) el.style.display = 'none';
-             else el.style.display = ''; 
-        }
-    });
+    // Only hide elements inside the VISIBLE container
+    const parent = primary.parentNode;
+    if (parent) {
+        parent.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
+            if (el.id === 'customEndsAt') return;
+            if (el.classList.contains('mdblist-rating-container') || el.closest('.mdblist-rating-container')) return;
+            if (el.classList.contains('mediaInfoOfficialRating')) return;
+            
+            const t = (el.textContent || '').toLowerCase();
+            if (t.includes('ends at') || t.includes('endet um') || t.includes('endet am')) {
+                 if (minutes > 0) el.style.display = 'none';
+                 else el.style.display = ''; 
+            }
+        });
+    }
 
     document.querySelectorAll('.starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating').forEach(el => el.style.display = 'none');
 
@@ -496,70 +509,81 @@ function fetchRatings(container, tmdbId, type) {
     });
 }
 
-// === STRICT ID ENFORCEMENT ENGINE ===
+// === VISIBILITY TARGETING ENGINE ===
 
 function scan() {
     updateEndsAt();
 
-    // 1. Get IMDB ID currently in DOM
+    // 1. Get current IMDB ID in DOM (just in case)
     const imdbLink = document.querySelector('a[href*="imdb.com/title/"]');
     if (imdbLink) {
         const m = imdbLink.href.match(/tt\d+/);
         if (m) currentImdbId = m[0];
     }
 
-    // 2. Find TMDB links to identify movie/show ID
-    const tmdbLinks = document.querySelectorAll('a[href*="themoviedb.org/"]');
-    if (tmdbLinks.length === 0) return; // Nothing to do if no ID found
+    // 2. Identify the Active ID from the Browser URL (Source of Truth)
+    // Jellyfin URLs are usually like: /web/index.html#!/details?id=...&serverId=...
+    // Or /item?id=...
+    let activeId = null;
+    const urlParams = new URLSearchParams(window.location.hash.split('?')[1] || window.location.search);
+    if (urlParams.has('id')) {
+        // We have an ID from URL, but it's the Jellyfin internal ID, not TMDB.
+        // We still need to find the TMDB link in the DOM.
+    }
 
-    // Use the first valid link found
-    let type = null, id = null;
-    for (const a of tmdbLinks) {
-        const m = a.href.match(/\/(movie|tv)\/(\d+)/);
-        if (m) {
-            type = m[1] === 'tv' ? 'show' : 'movie';
-            id = m[2];
+    // 3. Find the VISIBLE wrapper.
+    // Jellyfin keeps multiple .itemMiscInfo in DOM. Only one is visible.
+    const allWrappers = document.querySelectorAll('.itemMiscInfo');
+    let wrapper = null;
+    for (const el of allWrappers) {
+        if (el.offsetParent !== null) { // Checks if element is visible
+            wrapper = el;
             break;
         }
     }
 
-    if (!id) return;
+    if (!wrapper) return; // No visible detail page found.
 
-    // 3. Check the container
-    const wrapper = document.querySelector('.itemMiscInfo');
-    if (wrapper && document.body.contains(wrapper)) {
-        const existing = wrapper.querySelector('.mdblist-rating-container');
-        
-        // Strict Logic:
-        // - If no container -> CREATE
-        // - If container has WRONG ID -> DESTROY & CREATE
-        // - If container has RIGHT ID -> Do nothing (it's good)
-        
-        if (!existing) {
-            const div = document.createElement('div');
-            div.className = 'mdblist-rating-container';
-            div.dataset.type = type;
-            div.dataset.tmdbId = id; // Stamp ID
-            wrapper.appendChild(div);
-            fetchRatings(div, id, type);
-        } 
-        else if (existing.dataset.tmdbId !== id) {
-            // MISMATCH DETECTED: Jellyfin navigated but kept old container
-            console.log(`[MDBList] ID Mismatch: Old=${existing.dataset.tmdbId} New=${id}. Reloading.`);
-            existing.remove();
+    // 4. Find TMDB links specifically NEAR the visible wrapper
+    // We search up to the detail container, then down for links.
+    const detailContext = wrapper.closest('.detailRibbon') || wrapper.parentNode;
+    if (!detailContext) return;
+
+    const tmdbLink = detailContext.querySelector('a[href*="themoviedb.org/"]');
+    
+    if (tmdbLink) {
+        const m = tmdbLink.href.match(/\/(movie|tv)\/(\d+)/);
+        if (m) {
+            const type = m[1] === 'tv' ? 'show' : 'movie';
+            const id = m[2];
             
-            const div = document.createElement('div');
-            div.className = 'mdblist-rating-container';
-            div.dataset.type = type;
-            div.dataset.tmdbId = id; // Stamp new ID
-            wrapper.appendChild(div);
-            fetchRatings(div, id, type);
+            // 5. Check if we already have ratings IN THIS VISIBLE WRAPPER
+            const existing = wrapper.querySelector('.mdblist-rating-container');
+                
+            if (!existing) {
+                const div = document.createElement('div');
+                div.className = 'mdblist-rating-container';
+                div.dataset.type = type;
+                div.dataset.tmdbId = id; 
+                wrapper.appendChild(div);
+                fetchRatings(div, id, type);
+            } 
+            else if (existing.dataset.tmdbId !== id) {
+                // If the container exists but has old data (Jellyfin reused the DOM element)
+                existing.remove();
+                const div = document.createElement('div');
+                div.className = 'mdblist-rating-container';
+                div.dataset.type = type;
+                div.dataset.tmdbId = id; 
+                wrapper.appendChild(div);
+                fetchRatings(div, id, type);
+            }
         }
     }
 }
 
-// Run strictly every 250ms
-setInterval(scan, 250);
+// Run every 500ms
+setInterval(scan, 500);
 
 
 /* ==========================================================================
