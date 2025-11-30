@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.4 — Fixed Settings & Runtime)
+// @name         Jellyfin Ratings (v10.1.6 — Wide Sliders & Click Fix)
 // @namespace    https://mdblist.com
-// @version      10.1.4
-// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Settings button is now inside the rating bar.
+// @version      10.1.6
+// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Fixed Slider ranges (+/- 500px/300px), wider menu, and button clickability.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.4 loading...');
+console.log('[Jellyfin Ratings] v10.1.6 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -144,13 +144,16 @@ function updateGlobalStyles() {
     document.documentElement.style.setProperty('--mdbl-y', `${CFG.display.posY}px`);
 
     let rules = `
+        /* Main Container: High Z-Index to stay on top */
         .mdblist-rating-container {
             display: flex; flex-wrap: wrap; align-items: center;
             justify-content: flex-end; 
             width: 100%; margin-top: ${CFG.spacing.ratingsTopGapPx}px;
             box-sizing: border-box;
             transform: translate(var(--mdbl-x), var(--mdbl-y));
-            z-index: 2147483647; position: relative; pointer-events: auto; flex-shrink: 0;
+            z-index: 2147483647; position: relative; 
+            pointer-events: auto !important; 
+            flex-shrink: 0;
         }
         .mdbl-rating-item {
             display: inline-flex; align-items: center; margin: 0 6px; gap: 6px;
@@ -161,16 +164,20 @@ function updateGlobalStyles() {
         }
         .mdbl-rating-item:hover {
             transform: scale(1.15) rotate(2deg);
-            z-index: 1000;
+            z-index: 2147483647;
         }
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; transition: filter 0.2s; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
         
+        /* Settings Button: Enforced clickability */
         .mdbl-settings-btn {
-            opacity: 0.6; margin-left: 8px; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 8px;
+            opacity: 0.6; margin-left: 8px; border-left: 1px solid rgba(255,255,255,0.2); 
+            padding: 4px 8px; /* Larger hit area */
+            cursor: pointer !important;
+            pointer-events: auto !important;
         }
         .mdbl-settings-btn:hover { opacity: 1; transform: scale(1.1); }
-        .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; }
+        .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; pointer-events: none; }
         
         /* Ensure metadata area is visible */
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { 
@@ -262,7 +269,6 @@ function formatTime(minutes) {
 
 function parseRuntimeToMinutes(text) {
     if (!text) return 0;
-    // Match "1 h 45 m", "105 min", "2 hr", "2 std 30 min"
     let m = text.match(/(?:(\d+)\s*(?:h|hr|std?)\w*\s*)?(?:(\d+)\s*(?:m|min)\w*)?/i);
     if (m && (m[1] || m[2])) {
         const h = parseInt(m[1] || '0', 10);
@@ -278,12 +284,10 @@ function updateEndsAt() {
     const primary = document.querySelector('.itemMiscInfo.itemMiscInfo-primary') || document.querySelector('.itemMiscInfo');
     if (!primary) return;
 
-    // Aggressive search for runtime in the detail container
     let minutes = 0;
     const detailContainer = primary.closest('.detailRibbon') || primary.closest('.mainDetailButtons') || primary.parentNode;
     
     if (detailContainer) {
-        // Look at all text nodes in the area
         const walker = document.createTreeWalker(detailContainer, NodeFilter.SHOW_TEXT, null, false);
         let node;
         while ((node = walker.nextNode())) {
@@ -295,7 +299,6 @@ function updateEndsAt() {
         }
     }
     
-    // Logic: If minutes found > hide original "Ends at" text if present, show custom.
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
         if (el.id === 'customEndsAt' || el.closest('.mdblist-rating-container')) return;
         const t = (el.textContent || '').toLowerCase();
@@ -314,8 +317,6 @@ function updateEndsAt() {
             span = document.createElement('div');
             span.id = 'customEndsAt';
             span.title = 'Calculated finish time';
-            
-            // Insert after the rating container or at the end
             const rc = primary.querySelector('.mdblist-rating-container');
             if (rc && rc.nextSibling) primary.insertBefore(span, rc.nextSibling);
             else primary.appendChild(span);
@@ -358,11 +359,9 @@ function renderRatings(container, data, pageImdbId, type) {
         slug: data.slug || data.ids?.slug
     };
     
-    const traktType = type === 'show' ? 'shows' : 'movies';
-    const metaType = type === 'show' ? 'tv' : 'movie';
     const fallbackSlug = localSlug(data.title || '');
+    const metaType = type === 'show' ? 'tv' : 'movie';
 
-    // Master Rating Calculation
     let masterSum = 0;
     let masterCount = 0;
     const trackMaster = (val, scaleKey) => {
@@ -432,20 +431,15 @@ function renderRatings(container, data, pageImdbId, type) {
         });
     }
 
-    // --- MASTER RATING (DuckDuckGo "I'm Feeling Lucky" !ducky) ---
     if (masterCount > 0) {
         const average = masterSum / masterCount;
-        
         const safeTitle = encodeURIComponent(data.title || '');
         const safeYear = (data.year || '').toString();
         const suffix = type === 'movie' ? 'film' : 'TV series';
         const wikiUrl = `https://duckduckgo.com/?q=!ducky+site:en.wikipedia.org+${safeTitle}+${safeYear}+${suffix}`;
-
         add('master', average, wikiUrl, masterCount, 'Master Rating', 'Sources');
     }
 
-    // --- APPEND SETTINGS BUTTON (Inline with ratings) ---
-    // This ensures it is always visible if the rating container is visible
     html += `
     <div class="mdbl-rating-item mdbl-settings-btn" title="Settings" onclick="event.preventDefault(); event.stopPropagation(); window.MDBL_OPEN_SETTINGS_GL();">
        <svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
@@ -456,7 +450,6 @@ function renderRatings(container, data, pageImdbId, type) {
     refreshDomElements();
 }
 
-// Global accessor for inline onclick
 window.MDBL_OPEN_SETTINGS_GL = () => openSettingsMenu();
 
 function fetchRatings(container, tmdbId, type) {
@@ -486,13 +479,11 @@ function fetchRatings(container, tmdbId, type) {
 }
 
 function scan() {
-    // --- NAVIGATION GUARD (RECYCLING FIX) ---
     if (window.location.pathname !== lastPath) {
         lastPath = window.location.pathname;
         currentImdbId = null; 
         document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
     }
-    // ----------------------------------------
 
     updateEndsAt();
 
@@ -553,10 +544,9 @@ function getJellyfinColor() {
 function initMenu() {
     if(document.getElementById('mdbl-panel')) return;
 
-    // Increased mdbl-right-col-wide to 340px to widen sliders
     const css = `
-    :root { --mdbl-right-col: 48px; --mdbl-right-col-wide: 340px; }
-    #mdbl-panel { position:fixed; right:16px; bottom:70px; width:480px; max-height:90vh; overflow:auto; border-radius:14px;
+    :root { --mdbl-right-col: 48px; --mdbl-right-col-wide: 420px; }
+    #mdbl-panel { position:fixed; right:16px; bottom:70px; width:600px; max-height:90vh; overflow:auto; border-radius:14px;
         border:1px solid rgba(255,255,255,0.15); background:rgba(22,22,26,0.94); backdrop-filter:blur(8px);
         color:#eaeaea; z-index:100000; box-shadow:0 20px 40px rgba(0,0,0,0.45); display:none; font-family: sans-serif; }
     #mdbl-panel header { position:sticky; top:0; background:rgba(22,22,26,0.98); padding:6px 12px; border-bottom:1px solid rgba(255,255,255,0.08);
@@ -620,7 +610,7 @@ function initMenu() {
     #mdbl-panel .mdbl-actions .mdbl-grow { flex:1; }
     #mdbl-panel .mdbl-actions .mdbl-compact { display:inline-flex; align-items:center; gap:6px; opacity:0.95; }
     
-    #mdbl-panel[data-compact="1"] { --mdbl-right-col:44px; --mdbl-right-col-wide:260px; width:460px; }
+    #mdbl-panel[data-compact="1"] { --mdbl-right-col:44px; --mdbl-right-col-wide:340px; width:500px; }
     #mdbl-panel[data-compact="1"] header { padding:6px 12px; }
     #mdbl-panel[data-compact="1"] .mdbl-section { padding:2px 12px; gap:2px; }
     #mdbl-panel[data-compact="1"] .mdbl-row, #mdbl-panel[data-compact="1"] .mdbl-source { gap:5px; padding:2px 6px; border-radius:6px; min-height: 32px; }
