@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.13 — SPA Fix)
+// @name         Jellyfin Ratings (v10.1.14 — MutationObserver Fix)
 // @namespace    https://mdblist.com
-// @version      10.1.13
-// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings but keeps Parental Rating. Persistent loader.
+// @version      10.1.14
+// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings but keeps Parental Rating. Instant loading via MutationObserver.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.13 loading...');
+console.log('[Jellyfin Ratings] v10.1.14 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -102,7 +102,6 @@ function loadConfig() {
             p.display.posX = 0; p.display.posY = 0;
         }
 
-        // --- FORCE CLAMP VALUES ---
         if (p.display.posX > 500) p.display.posX = 500;
         if (p.display.posX < -700) p.display.posX = -700;
         if (p.display.posY > 500) p.display.posY = 500;
@@ -314,7 +313,6 @@ function updateEndsAt() {
         }
     }
     
-    // Hide original "Ends at" text if found (BUT PROTECT OUR CONTAINER AND PARENTAL RATING)
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
         if (el.id === 'customEndsAt') return;
         if (el.classList.contains('mdblist-rating-container') || el.closest('.mdblist-rating-container')) return;
@@ -327,7 +325,6 @@ function updateEndsAt() {
         }
     });
 
-    // Also JS Hide defaults just in case CSS misses them (EXCEPT Parental Rating)
     document.querySelectorAll('.starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating').forEach(el => el.style.display = 'none');
 
     if (minutes > 0) {
@@ -371,7 +368,6 @@ function createRatingHtml(key, val, link, count, title, kind) {
 }
 
 function renderRatings(container, data, pageImdbId, type) {
-    // 1. START WITH SETTINGS BUTTON (Added inline style order:-9999 to guarantee it is first)
     let html = `
     <div class="mdbl-rating-item mdbl-settings-btn" title="Settings" style="order: -9999 !important;" onclick="event.preventDefault(); event.stopPropagation(); window.MDBL_OPEN_SETTINGS_GL();">
        <svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
@@ -502,19 +498,27 @@ function fetchRatings(container, tmdbId, type) {
     });
 }
 
+// === NEW: MUTATION OBSERVER LOGIC ===
+let debounceTimer = null;
+function handleMutations(mutations) {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+        scan();
+    }, 50); // Fast debounce
+}
+
+const observer = new MutationObserver(handleMutations);
+observer.observe(document.body, { childList: true, subtree: true });
+
 function scan() {
-    // 1. Update Ends At Logic constantly
     updateEndsAt();
 
-    // 2. Identify current IMDB ID on page (if any)
     const imdbLink = document.querySelector('a[href*="imdb.com/title/"]');
     if (imdbLink) {
         const m = imdbLink.href.match(/tt\d+/);
         if (m) currentImdbId = m[0];
     }
 
-    // 3. Find TMDB links to identify movie/show ID
-    // We iterate links, but we only act if the container is missing or wrong.
     [...document.querySelectorAll('a[href*="themoviedb.org/"]')].forEach(a => {
         const m = a.href.match(/\/(movie|tv)\/(\d+)/);
         if (m) {
@@ -523,10 +527,7 @@ function scan() {
             
             const wrapper = document.querySelector('.itemMiscInfo');
             if (wrapper) {
-                // Check if we already have a container
                 const existing = wrapper.querySelector('.mdblist-rating-container');
-                
-                // Case A: No container exists -> Create it
                 if (!existing) {
                     const div = document.createElement('div');
                     div.className = 'mdblist-rating-container';
@@ -535,9 +536,8 @@ function scan() {
                     wrapper.appendChild(div);
                     fetchRatings(div, id, type);
                 } 
-                // Case B: Container exists, but for the WRONG ID (User navigated)
                 else if (existing.dataset.tmdbId !== id) {
-                    existing.remove(); // Remove old one
+                    existing.remove();
                     const div = document.createElement('div');
                     div.className = 'mdblist-rating-container';
                     div.dataset.type = type;
@@ -545,13 +545,10 @@ function scan() {
                     wrapper.appendChild(div);
                     fetchRatings(div, id, type);
                 }
-                // Case C: Container exists and matches ID. Do nothing.
             }
         }
     });
 }
-
-setInterval(scan, 500);
 
 
 /* ==========================================================================
