@@ -1,36 +1,42 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.26 — Direct Metadata API)
+// @name         Jellyfin Ratings (v10.1.25 — Dual API Fix)
 // @namespace    https://mdblist.com
-// @version      10.1.26
-// @description  Master Rating links to Wikipedia. Gear icon first. Hides default ratings. Fetches IDs directly from Jellyfin Server API (No scraping).
+// @version      10.1.25
+// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings. Correctly handles IMDb vs TMDB IDs.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.26 loading...');
+console.log('[Jellyfin Ratings] v10.1.25 loading...');
 
 /* ==========================================================================
-   1. CONFIGURATION
+   1. CONFIGURATION & CONSTANTS
 ========================================================================== */
 
 const NS = 'mdbl_';
+
 const DEFAULTS = {
     sources: {
-        master: true, imdb: true, tmdb: true, trakt: true, letterboxd: true,
+        master: true,
+        imdb: true, tmdb: true, trakt: true, letterboxd: true,
         rotten_tomatoes_critic: true, rotten_tomatoes_audience: true,
-        metacritic_critic: true, metacritic_user: true, roger_ebert: true,
-        anilist: true, myanimelist: true
+        metacritic_critic: true, metacritic_user: true,
+        roger_ebert: true, anilist: true, myanimelist: true
     },
     display: {
-        showPercentSymbol: true, colorNumbers: true, colorIcons: false,
-        posX: 0, posY: 0,
+        showPercentSymbol: true,
+        colorNumbers: true,
+        colorIcons: false,
+        posX: 0,
+        posY: 0,
         colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
         colorChoice: { red: 0, orange: 2, yg: 3, mg: 0 },
         endsAt24h: true
     },
     spacing: { ratingsTopGapPx: 4 },
     priorities: {
-        master: -1, imdb: 1, tmdb: 2, trakt: 3, letterboxd: 4,
+        master: -1, 
+        imdb: 1, tmdb: 2, trakt: 3, letterboxd: 4,
         rotten_tomatoes_critic: 5, rotten_tomatoes_audience: 6,
         roger_ebert: 7, metacritic_critic: 8, metacritic_user: 9,
         anilist: 10, myanimelist: 11
@@ -38,7 +44,8 @@ const DEFAULTS = {
 };
 
 const SCALE = {
-    master: 1, imdb: 10, tmdb: 1, trakt: 1, letterboxd: 20, roger_ebert: 25,
+    master: 1,
+    imdb: 10, tmdb: 1, trakt: 1, letterboxd: 20, roger_ebert: 25,
     metacritic_critic: 1, metacritic_user: 10, myanimelist: 10, anilist: 1,
     rotten_tomatoes_critic: 1, rotten_tomatoes_audience: 1
 };
@@ -61,16 +68,23 @@ const CACHE_DURATION_API = 24 * 60 * 60 * 1000;
 const ICON_BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
 
 const LOGO = {
-    master: `${ICON_BASE}/master.png`, imdb: `${ICON_BASE}/IMDb.png`, tmdb: `${ICON_BASE}/TMDB.png`,
-    trakt: `${ICON_BASE}/Trakt.png`, letterboxd: `${ICON_BASE}/letterboxd.png`, anilist: `${ICON_BASE}/anilist.png`,
-    myanimelist: `${ICON_BASE}/mal.png`, roger_ebert: `${ICON_BASE}/Roger_Ebert.png`,
+    master: `${ICON_BASE}/master.png`,
+    imdb: `${ICON_BASE}/IMDb.png`,
+    tmdb: `${ICON_BASE}/TMDB.png`,
+    trakt: `${ICON_BASE}/Trakt.png`,
+    letterboxd: `${ICON_BASE}/letterboxd.png`,
+    anilist: `${ICON_BASE}/anilist.png`,
+    myanimelist: `${ICON_BASE}/mal.png`,
+    roger_ebert: `${ICON_BASE}/Roger_Ebert.png`,
     rotten_tomatoes_critic: `${ICON_BASE}/Rotten_Tomatoes.png`,
     rotten_tomatoes_audience: `${ICON_BASE}/Rotten_Tomatoes_positive_audience.png`,
-    metacritic_critic: `${ICON_BASE}/Metacritic.png`, metacritic_user: `${ICON_BASE}/mus2.png`
+    metacritic_critic: `${ICON_BASE}/Metacritic.png`,
+    metacritic_user: `${ICON_BASE}/mus2.png`
 };
 
 const LABEL = {
-    master: 'Master Rating', imdb: 'IMDb', tmdb: 'TMDb', trakt: 'Trakt', letterboxd: 'Letterboxd',
+    master: 'Master Rating',
+    imdb: 'IMDb', tmdb: 'TMDb', trakt: 'Trakt', letterboxd: 'Letterboxd',
     rotten_tomatoes_critic: 'Rotten Tomatoes (Critic)', rotten_tomatoes_audience: 'Rotten Tomatoes (Audience)',
     metacritic_critic: 'Metacritic (Critic)', metacritic_user: 'Metacritic (User)',
     roger_ebert: 'Roger Ebert', anilist: 'AniList', myanimelist: 'MyAnimeList'
@@ -132,6 +146,7 @@ function updateGlobalStyles() {
     document.documentElement.style.setProperty('--mdbl-y', `${CFG.display.posY}px`);
 
     let rules = `
+        /* Main Container */
         .mdblist-rating-container {
             display: flex; flex-wrap: wrap; align-items: center;
             justify-content: flex-end; 
@@ -150,37 +165,68 @@ function updateGlobalStyles() {
             cursor: pointer;
             color: inherit;
         }
-        .mdbl-rating-item:hover { transform: scale(1.15) rotate(2deg); z-index: 2147483647; }
-        .mdbl-rating-item img { height: 1.3em; vertical-align: middle; }
-        .mdbl-rating-item span { font-size: 1em; vertical-align: middle; }
+        .mdbl-rating-item:hover {
+            transform: scale(1.15) rotate(2deg);
+            z-index: 2147483647;
+        }
+        .mdbl-rating-item img { height: 1.3em; vertical-align: middle; transition: filter 0.2s; }
+        .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
         
+        /* Settings Button - Forced first via order */
         .mdbl-settings-btn {
             opacity: 0.6; margin-right: 8px; border-right: 1px solid rgba(255,255,255,0.2); 
-            padding: 4px 8px 4px 0; cursor: pointer !important; pointer-events: auto !important;
-            order: -9999 !important; display: inline-flex;
+            padding: 4px 8px 4px 0;
+            cursor: pointer !important; pointer-events: auto !important;
+            order: -9999 !important; 
+            display: inline-flex;
         }
         .mdbl-settings-btn:hover { opacity: 1; transform: scale(1.1); }
-        .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; }
+        .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; pointer-events: none; }
         
         /* Scan Indicator */
         .mdbl-scan-dot {
             animation: mdbl-blink 1s infinite;
-            font-size: 18px; line-height: 10px; opacity: 0.5; margin-right: 5px; color: #fff;
+            font-size: 18px;
+            line-height: 10px;
+            opacity: 0.5;
+            margin-right: 5px;
+            color: #fff;
         }
-        .mdbl-scan-error { color: #e53935; font-weight: bold; font-size: 12px; margin-right: 5px; cursor: help; }
         @keyframes mdbl-blink { 0% {opacity:0.2} 50% {opacity:0.8} 100% {opacity:0.2} }
 
-        .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; position: relative; z-index: 10; }
-        #customEndsAt { font-size: inherit; opacity: 0.9; cursor: default; margin-left: 10px; display: inline-block; padding: 2px 4px; }
+        .itemMiscInfo, .mainDetailRibbon, .detailRibbon { 
+            overflow: visible !important; contain: none !important; position: relative; z-index: 10; 
+        }
         
-        .mediaInfoOfficialRating { display: inline-flex !important; margin-right: 14px; }
-        .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { display: none !important; }
+        #customEndsAt { 
+            font-size: inherit; opacity: 0.9; cursor: default; 
+            margin-left: 10px; display: inline-block; vertical-align: baseline;
+            pointer-events: auto; position: relative; z-index: 9999;
+            padding: 2px 4px;
+        }
+
+        .mediaInfoOfficialRating {
+            display: inline-flex !important;
+            margin-right: 14px;
+        }
+
+        .starRatingContainer, 
+        .mediaInfoCriticRating, 
+        .mediaInfoAudienceRating,
+        .starRating {
+            display: none !important;
+        }
     `;
 
     Object.keys(CFG.priorities).forEach(key => {
         const isEnabled = CFG.sources[key];
         const order = CFG.priorities[key];
-        rules += `.mdbl-rating-item[data-source="${key}"] { display: ${isEnabled ? 'inline-flex' : 'none'}; order: ${order}; }`;
+        rules += `
+            .mdbl-rating-item[data-source="${key}"] {
+                display: ${isEnabled ? 'inline-flex' : 'none'};
+                order: ${order};
+            }
+        `;
     });
     styleEl.textContent = rules;
 }
@@ -228,8 +274,12 @@ function fixUrl(url, domain) {
 }
 
 function openSettingsMenu() {
-    if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
-    else { initMenu(); if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS(); }
+    if (window.MDBL_OPEN_SETTINGS) {
+        window.MDBL_OPEN_SETTINGS();
+    } else {
+        initMenu();
+        if (window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS();
+    }
 }
 
 function formatTime(minutes) {
@@ -257,12 +307,17 @@ function updateEndsAt() {
     const allWrappers = document.querySelectorAll('.itemMiscInfo');
     let primary = null;
     for (const el of allWrappers) {
-        if (el.offsetParent !== null) { primary = el; break; }
+        if (el.offsetParent !== null) { 
+            primary = el;
+            break;
+        }
     }
+    
     if (!primary) return; 
 
     let minutes = 0;
     const detailContainer = primary.closest('.detailRibbon') || primary.closest('.mainDetailButtons') || primary.parentNode;
+    
     if (detailContainer) {
         const walker = document.createTreeWalker(detailContainer, NodeFilter.SHOW_TEXT, null, false);
         let node;
@@ -278,7 +333,10 @@ function updateEndsAt() {
     const parent = primary.parentNode;
     if (parent) {
         parent.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
-            if (el.id === 'customEndsAt' || el.closest('.mdblist-rating-container') || el.classList.contains('mediaInfoOfficialRating')) return;
+            if (el.id === 'customEndsAt') return;
+            if (el.classList.contains('mdblist-rating-container') || el.closest('.mdblist-rating-container')) return;
+            if (el.classList.contains('mediaInfoOfficialRating')) return;
+            
             const t = (el.textContent || '').toLowerCase();
             if (t.includes('ends at') || t.includes('endet um') || t.includes('endet am')) {
                  if (minutes > 0) el.style.display = 'none';
@@ -286,19 +344,23 @@ function updateEndsAt() {
             }
         });
     }
+
     document.querySelectorAll('.starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating').forEach(el => el.style.display = 'none');
 
     if (minutes > 0) {
         const timeStr = formatTime(minutes);
+        const content = `Ends at ${timeStr}`;
+
         let span = primary.querySelector('#customEndsAt');
         if (!span) {
             span = document.createElement('div');
             span.id = 'customEndsAt';
+            span.title = 'Calculated finish time';
             const rc = primary.querySelector('.mdblist-rating-container');
             if (rc && rc.nextSibling) primary.insertBefore(span, rc.nextSibling);
             else primary.appendChild(span);
         }
-        span.textContent = `Ends at ${timeStr}`;
+        if (span.textContent !== content) span.textContent = content;
         span.style.display = ''; 
     } else {
         const span = primary.querySelector('#customEndsAt');
@@ -309,101 +371,189 @@ function updateEndsAt() {
 function createRatingHtml(key, val, link, count, title, kind) {
     if (val === null || isNaN(val)) return '';
     if (!LOGO[key]) return '';
+
     const n = parseFloat(val) * (SCALE[key] || 1);
     const r = Math.round(n);
+    
     const tooltip = (count && count > 0) ? `${title} — ${count.toLocaleString()} ${kind||'Votes'}` : title;
     const safeLink = (link && link !== '#' && !link.startsWith('http://192')) ? link : '#';
     const style = safeLink === '#' ? 'cursor:default;' : '';
-    return `<a href="${safeLink}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}" style="${style}" title="${tooltip}"><img src="${LOGO[key]}" alt="${title}"><span>${CFG.display.showPercentSymbol ? r+'%' : r}</span></a>`;
+    
+    return `
+        <a href="${safeLink}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}" style="${style}" title="${tooltip}">
+            <img src="${LOGO[key]}" alt="${title}">
+            <span>${CFG.display.showPercentSymbol ? r+'%' : r}</span>
+        </a>
+    `;
 }
 
 function renderGearIcon(container) {
     if (container.querySelector('.mdbl-settings-btn')) return;
     container.innerHTML = `
-    <div class="mdbl-rating-item mdbl-settings-btn" title="Settings" style="order: -9999 !important;" onclick="event.preventDefault(); event.stopPropagation(); window.MDBL_OPEN_SETTINGS_GL();"><svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg></div>
-    <span class="mdbl-scan-dot" title="Fetching IDs from Jellyfin...">...</span>`;
+    <div class="mdbl-rating-item mdbl-settings-btn" title="Settings" style="order: -9999 !important;" onclick="event.preventDefault(); event.stopPropagation(); window.MDBL_OPEN_SETTINGS_GL();">
+       <svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
+    </div>
+    <span class="mdbl-scan-dot" title="Looking for IDs...">...</span>
+    `;
     updateGlobalStyles();
 }
 
 function renderRatings(container, data, pageImdbId, type) {
     let html = `
-    <div class="mdbl-rating-item mdbl-settings-btn" title="Settings" style="order: -9999 !important;" onclick="event.preventDefault(); event.stopPropagation(); window.MDBL_OPEN_SETTINGS_GL();"><svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg></div>`;
+    <div class="mdbl-rating-item mdbl-settings-btn" title="Settings" style="order: -9999 !important;" onclick="event.preventDefault(); event.stopPropagation(); window.MDBL_OPEN_SETTINGS_GL();">
+       <svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
+    </div>
+    `;
 
     const add = (k, v, lnk, cnt, tit, kind) => html += createRatingHtml(k, v, lnk, cnt, tit, kind);
-    const ids = { imdb: data.imdbid || data.imdb_id || pageImdbId, tmdb: data.id || data.tmdbid || data.tmdb_id, trakt: data.traktid || data.trakt_id, slug: data.slug || data.ids?.slug };
+    
+    const ids = {
+        imdb: data.imdbid || data.imdb_id || pageImdbId,
+        tmdb: data.id || data.tmdbid || data.tmdb_id || container.dataset.tmdbId,
+        trakt: data.traktid || data.trakt_id,
+        slug: data.slug || data.ids?.slug
+    };
+    
     const fallbackSlug = localSlug(data.title || '');
     const metaType = type === 'show' ? 'tv' : 'movie';
-    let masterSum = 0, masterCount = 0;
-    const trackMaster = (val, scaleKey) => { if (val !== null && !isNaN(parseFloat(val))) { masterSum += parseFloat(val) * (SCALE[scaleKey] || 1); masterCount++; } };
+
+    let masterSum = 0;
+    let masterCount = 0;
+    const trackMaster = (val, scaleKey) => {
+        if (val !== null && !isNaN(parseFloat(val))) {
+            masterSum += parseFloat(val) * (SCALE[scaleKey] || 1);
+            masterCount++;
+        }
+    };
 
     if (data.ratings) {
         data.ratings.forEach(r => {
             const s = (r.source || '').toLowerCase();
-            const v = r.value, c = r.votes || r.count, apiLink = r.url;
-            if (s.includes('imdb')) { add('imdb', v, ids.imdb ? `https://www.imdb.com/title/${ids.imdb}/` : apiLink, c, 'IMDb', 'Votes'); trackMaster(v, 'imdb'); }
-            else if (s.includes('tmdb')) { add('tmdb', v, ids.tmdb ? `https://www.themoviedb.org/${type}/${ids.tmdb}` : '#', c, 'TMDb', 'Votes'); trackMaster(v, 'tmdb'); }
-            else if (s.includes('trakt')) { add('trakt', v, ids.imdb ? `https://trakt.tv/search/imdb/${ids.imdb}` : '#', c, 'Trakt', 'Votes'); trackMaster(v, 'trakt'); }
-            else if (s.includes('letterboxd')) { add('letterboxd', v, ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : fixUrl(apiLink, 'letterboxd.com'), c, 'Letterboxd', 'Votes'); trackMaster(v, 'letterboxd'); }
-            else if (s.includes('tomatoes') || s.includes('rotten')) {
-                if(s.includes('audience') || s.includes('popcorn')) { add('rotten_tomatoes_audience', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'RT Audience', 'Ratings'); trackMaster(v, 'rotten_tomatoes_audience'); }
-                else { add('rotten_tomatoes_critic', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'RT Critic', 'Reviews'); trackMaster(v, 'rotten_tomatoes_critic'); }
+            const v = r.value;
+            const c = r.votes || r.count;
+            const apiLink = r.url; 
+
+            if (s.includes('imdb')) {
+                const lnk = ids.imdb ? `https://www.imdb.com/title/${ids.imdb}/` : (apiLink && apiLink.startsWith('http') ? apiLink : null);
+                add('imdb', v, lnk, c, 'IMDb', 'Votes');
+                trackMaster(v, 'imdb');
+            } 
+            else if (s.includes('tmdb')) {
+                const lnk = ids.tmdb ? `https://www.themoviedb.org/${type}/${ids.tmdb}` : '#';
+                add('tmdb', v, lnk, c, 'TMDb', 'Votes');
+                trackMaster(v, 'tmdb');
             }
-            else if (s.includes('metacritic')) {
+            else if (s.includes('trakt')) {
+                const lnk = ids.imdb ? `https://trakt.tv/search/imdb/${ids.imdb}` : '#';
+                add('trakt', v, lnk, c, 'Trakt', 'Votes');
+                trackMaster(v, 'trakt');
+            }
+            else if (s.includes('letterboxd')) {
+                const lnk = ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : fixUrl(apiLink, 'letterboxd.com');
+                add('letterboxd', v, lnk, c, 'Letterboxd', 'Votes');
+                trackMaster(v, 'letterboxd');
+            }
+            else if (s === 'tomatoes' || s.includes('rotten_tomatoes')) {
+                add('rotten_tomatoes_critic', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'RT Critic', 'Reviews');
+                trackMaster(v, 'rotten_tomatoes_critic');
+            }
+            else if (s.includes('popcorn') || s.includes('audience')) {
+                add('rotten_tomatoes_audience', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'RT Audience', 'Ratings');
+                trackMaster(v, 'rotten_tomatoes_audience');
+            }
+            else if (s.includes('metacritic') && !s.includes('user')) {
                 const lnk = fallbackSlug ? `https://www.metacritic.com/${metaType}/${fallbackSlug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(data.title||'')}/results`;
-                if(s.includes('user')) { add('metacritic_user', v, lnk, c, 'User', 'Ratings'); trackMaster(v, 'metacritic_user'); }
-                else { add('metacritic_critic', v, lnk, c, 'Metacritic', 'Reviews'); trackMaster(v, 'metacritic_critic'); }
+                add('metacritic_critic', v, lnk, c, 'Metacritic', 'Reviews');
+                trackMaster(v, 'metacritic_critic');
             }
-            else if (s.includes('roger')) { add('roger_ebert', v, fixUrl(apiLink, 'rogerebert.com'), c, 'Roger Ebert', 'Reviews'); trackMaster(v, 'roger_ebert'); }
-            else if (s.includes('anilist')) { add('anilist', v, fixUrl(apiLink, 'anilist.co'), c, 'AniList', 'Votes'); trackMaster(v, 'anilist'); }
-            else if (s.includes('myanimelist')) { add('myanimelist', v, fixUrl(apiLink, 'myanimelist.net'), c, 'MAL', 'Votes'); trackMaster(v, 'myanimelist'); }
+            else if (s.includes('metacritic') && s.includes('user')) {
+                const lnk = fallbackSlug ? `https://www.metacritic.com/${metaType}/${fallbackSlug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(data.title||'')}/results`;
+                add('metacritic_user', v, lnk, c, 'User', 'Ratings');
+                trackMaster(v, 'metacritic_user');
+            }
+            else if (s.includes('roger')) {
+                add('roger_ebert', v, fixUrl(apiLink, 'rogerebert.com'), c, 'Roger Ebert', 'Reviews');
+                trackMaster(v, 'roger_ebert');
+            }
+            else if (s.includes('anilist')) {
+                add('anilist', v, fixUrl(apiLink, 'anilist.co'), c, 'AniList', 'Votes');
+                trackMaster(v, 'anilist');
+            }
+            else if (s.includes('myanimelist')) {
+                add('myanimelist', v, fixUrl(apiLink, 'myanimelist.net'), c, 'MAL', 'Votes');
+                trackMaster(v, 'myanimelist');
+            }
         });
     }
 
     if (masterCount > 0) {
-        const avg = masterSum / masterCount;
-        const wikiUrl = `https://duckduckgo.com/?q=!ducky+site:en.wikipedia.org+${encodeURIComponent(data.title || '')}+${(data.year || '')}+${type === 'movie' ? 'film' : 'TV series'}`;
-        add('master', avg, wikiUrl, masterCount, 'Master Rating', 'Sources');
+        const average = masterSum / masterCount;
+        const safeTitle = encodeURIComponent(data.title || '');
+        const safeYear = (data.year || '').toString();
+        const suffix = type === 'movie' ? 'film' : 'TV series';
+        const wikiUrl = `https://duckduckgo.com/?q=!ducky+site:en.wikipedia.org+${safeTitle}+${safeYear}+${suffix}`;
+        add('master', average, wikiUrl, masterCount, 'Master Rating', 'Sources');
     }
 
     container.innerHTML = html;
     refreshDomElements();
 }
 
+window.MDBL_OPEN_SETTINGS_GL = () => openSettingsMenu();
+
+// MODIFIED: Accepts apiMode to distinguish between TMDB and IMDB calls
 function fetchRatings(container, id, type, apiMode) {
-    if (container.dataset.fetching === 'true') return;
-    const apiUrl = (apiMode === 'imdb') ? `https://api.mdblist.com/imdb/${id}?apikey=${API_KEY}` : `https://api.mdblist.com/tmdb/${type}/${id}?apikey=${API_KEY}`;
-    const cacheKey = `${NS}c_${id}`;
+    if (container.dataset.fetching === 'true') return; 
     
+    // Construct correct URL based on ID type
+    let apiUrl;
+    if (apiMode === 'imdb') {
+        apiUrl = `https://api.mdblist.com/imdb/${id}?apikey=${API_KEY}`;
+        console.log(`[MDBList] Fetching via IMDB: ${id}`);
+    } else {
+        apiUrl = `https://api.mdblist.com/tmdb/${type}/${id}?apikey=${API_KEY}`;
+        console.log(`[MDBList] Fetching via TMDB: ${id}`);
+    }
+
+    const cacheKey = `${NS}c_${id}`;
     try {
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
             const c = JSON.parse(cached);
-            if (Date.now() - c.ts < CACHE_DURATION_API) { renderRatings(container, c.data, currentImdbId, type); return; }
+            if (Date.now() - c.ts < CACHE_DURATION_API) {
+                renderRatings(container, c.data, currentImdbId, type);
+                return;
+            }
         }
     } catch(e) {}
 
     container.dataset.fetching = 'true';
     GM_xmlhttpRequest({
-        method: 'GET', url: apiUrl,
+        method: 'GET',
+        url: apiUrl,
         onload: r => {
             container.dataset.fetching = 'false';
-            if (r.status !== 200) { 
-                console.error('[MDBList] API Error:', r.status);
-                const dot = container.querySelector('.mdbl-scan-dot');
-                if(dot) { dot.textContent = '✖'; dot.className = 'mdbl-scan-error'; dot.title = 'MDBList API Error: ' + r.status; }
-                return;
-            }
             try {
+                if (r.status !== 200) { 
+                    console.error('[MDBList] API Error:', r.status); 
+                    // Visual feedback for error: turn dots red
+                    const dot = container.querySelector('.mdbl-scan-dot');
+                    if(dot) { dot.style.color = 'red'; dot.title = `Error: ${r.status}`; }
+                    return; 
+                }
                 const d = JSON.parse(r.responseText);
                 localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: d }));
                 renderRatings(container, d, currentImdbId, type);
             } catch(e) { console.error('[MDBList] Parse Error', e); }
         },
-        onerror: e => { container.dataset.fetching = 'false'; console.error('[MDBList] Net Error', e); }
+        onerror: e => {
+            container.dataset.fetching = 'false';
+            console.error('[MDBList] Net Error', e)
+        }
     });
 }
 
-// === DIRECT METADATA API ENGINE ===
+// === BRUTE FORCE ID HUNTER ===
 
 function getJellyfinId() {
     const url = window.location.hash || window.location.search;
@@ -411,69 +561,21 @@ function getJellyfinId() {
     return params.get('id');
 }
 
-function fetchJellyfinMetadata(itemId, container) {
-    if(!itemId) return;
-    // Try to fetch from Jellyfin API directly (/Users/Me/Items/{Id})
-    const url = `${window.location.origin}/Users/Me/Items/${itemId}`;
-    fetch(url).then(r => r.json()).then(data => {
-        let extId = null, mode = 'tmdb', type = 'movie';
-        
-        if (data.Type === 'Series' || data.Type === 'Episode') type = 'show';
-        
-        if (data.ProviderIds && data.ProviderIds.Tmdb) {
-            extId = data.ProviderIds.Tmdb;
-            mode = 'tmdb';
-        } else if (data.ProviderIds && data.ProviderIds.Imdb) {
-            extId = data.ProviderIds.Imdb;
-            mode = 'imdb';
-        }
-
-        if (extId) {
-            container.dataset.tmdbId = extId;
-            fetchRatings(container, extId, type, mode);
-        } else {
-            console.log('[MDBList] No External IDs found in Jellyfin Metadata.');
-            const dot = container.querySelector('.mdbl-scan-dot');
-            if(dot) { dot.textContent = '?'; dot.title = 'No TMDB/IMDb ID found'; }
-        }
-    }).catch(e => {
-        console.error('[MDBList] Jellyfin API Fetch failed', e);
-        // Fallback to DOM scraping if API fails
-        fallbackDomScrape(container);
-    });
-}
-
-function fallbackDomScrape(container) {
-    let type = 'movie', id = null, mode = 'tmdb';
-    for (let i = 0; i < document.links.length; i++) {
-        const href = document.links[i].href;
-        if (href.includes('themoviedb.org')) {
-            const m = href.match(/\/(movie|tv)\/(\d+)/);
-            if (m) { type = m[1] === 'tv' ? 'show' : 'movie'; id = m[2]; mode = 'tmdb'; break; }
-        }
-    }
-    if (!id) {
-        for (let i = 0; i < document.links.length; i++) {
-            const href = document.links[i].href;
-            if (href.includes('imdb.com/title/')) {
-                const m = href.match(/tt\d+/);
-                if (m) { id = m[0]; mode = 'imdb'; break; }
-            }
-        }
-    }
-    if (id) {
-        container.dataset.tmdbId = id;
-        fetchRatings(container, id, type, mode);
-    }
-}
-
 function scan() {
     updateEndsAt();
+
     const currentJellyfinId = getJellyfinId();
+
     const allWrappers = document.querySelectorAll('.itemMiscInfo');
     let wrapper = null;
-    for (const el of allWrappers) { if (el.offsetParent !== null) { wrapper = el; break; } }
-    if (!wrapper) return;
+    for (const el of allWrappers) {
+        if (el.offsetParent !== null) { 
+            wrapper = el;
+            break;
+        }
+    }
+
+    if (!wrapper) return; 
 
     let container = wrapper.querySelector('.mdblist-rating-container');
     if (!container) {
@@ -482,20 +584,386 @@ function scan() {
         container.dataset.jellyfinId = currentJellyfinId;
         wrapper.appendChild(container);
         renderGearIcon(container);
-        if (currentJellyfinId) fetchJellyfinMetadata(currentJellyfinId, container);
-    } else if (container.dataset.jellyfinId !== currentJellyfinId) {
+    } 
+    else if (container.dataset.jellyfinId !== currentJellyfinId) {
         container.innerHTML = '';
         renderGearIcon(container);
         container.dataset.jellyfinId = currentJellyfinId;
+        container.dataset.tmdbId = '';
+        container.dataset.fetched = '';
         container.dataset.fetching = 'false';
-        if (currentJellyfinId) fetchJellyfinMetadata(currentJellyfinId, container);
+    }
+
+    if (container.querySelector('.mdbl-rating-item:not(.mdbl-settings-btn)')) return;
+
+    // 4. BRUTE FORCE ID SEARCH (Scanning ALL links)
+    let type = 'movie'; 
+    let id = null;
+    let apiMode = 'tmdb'; // Default mode
+
+    // 1. Try TMDB (Preferred)
+    for (let i = 0; i < document.links.length; i++) {
+        const href = document.links[i].href;
+        if (href.includes('themoviedb.org')) {
+            const m = href.match(/\/(movie|tv)\/(\d+)/);
+            if (m) {
+                type = m[1] === 'tv' ? 'show' : 'movie';
+                id = m[2];
+                apiMode = 'tmdb';
+                break;
+            }
+        }
+    }
+
+    // 2. Try IMDB (Fallback) - AND SET API MODE TO IMDB
+    if (!id) {
+        for (let i = 0; i < document.links.length; i++) {
+            const href = document.links[i].href;
+            if (href.includes('imdb.com/title/')) {
+                const m = href.match(/tt\d+/);
+                if (m) {
+                    id = m[0]; // Capture ttXXXXX
+                    apiMode = 'imdb'; // IMPORTANT: Switch API mode
+                    break;
+                }
+            }
+        }
+    }
+
+    // 5. Trigger Fetch if valid ID found
+    if (id) {
+        if (container.dataset.tmdbId !== id) {
+            container.dataset.tmdbId = id;
+            container.dataset.type = type;
+            fetchRatings(container, id, type, apiMode); // Pass correct API mode
+        }
     }
 }
 
+// Run every 500ms
 setInterval(scan, 500);
 
+
 /* ==========================================================================
-   4. SETTINGS MENU (INIT) - [Compact]
+   4. SETTINGS MENU (INIT)
 ========================================================================== */
-function initMenu(){if(document.getElementById("mdbl-panel"))return;const e=document.createElement("style");e.textContent=`
-:root{--mdbl-right-col:48px}#mdbl-panel{position:fixed;right:16px;bottom:70px;width:500px;max-height:90vh;overflow:auto;border-radius:14px;border:1px solid rgba(255,255,255,.15);background:rgba(22,22,26,.94);backdrop-filter:blur(8px);color:#eaeaea;z-index:100000;box-shadow:0 20px 40px rgba(0,0,0,.45);display:none;font-family:sans-serif}#mdbl-panel header{position:sticky;top:0;background:rgba(22,22,26,.98);padding:6px 12px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:8px;cursor:move;z-index:999;font-weight:700;justify-content:space-between}#mdbl-close{width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:0 0;border:none;color:#aaa;font-size:18px;cursor:pointer;padding:0;border-radius:6px}#mdbl-close:hover{background:rgba(255,255,255,.06);color:#fff}#mdbl-panel .mdbl-section{padding:2px 12px;gap:2px;display:flex;flex-direction:column}#mdbl-panel .mdbl-subtle{color:#9aa0a6;font-size:12px}#mdbl-panel .mdbl-row,#mdbl-panel .mdbl-source{display:grid;grid-template-columns:1fr var(--mdbl-right-col);align-items:center;gap:5px;padding:2px 6px;border-radius:6px;min-height:32px}#mdbl-panel .mdbl-row{background:0 0;border:1px solid rgba(255,255,255,.06);box-sizing:border-box}.mdbl-slider-row{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:4px 6px;border-radius:6px;background:0 0;border:1px solid rgba(255,255,255,.06);min-height:32px}.mdbl-slider-row>span{white-space:nowrap;width:110px;flex-shrink:0}.mdbl-slider-row .slider-wrapper{flex-grow:1;display:flex;align-items:center;gap:10px;justify-content:flex-end;width:100%}#mdbl-panel input[type=checkbox]{transform:scale(1.2);cursor:pointer;accent-color:var(--mdbl-theme)}#mdbl-panel input[type=range]{flex-grow:1;width:100%;margin:0;cursor:pointer;accent-color:var(--mdbl-theme)}#mdbl-panel input[type=text]{width:100%;padding:10px 0;border:0;background:0 0;color:#eaeaea;font-size:14px;outline:0}#mdbl-panel input.mdbl-num-input,#mdbl-panel input.mdbl-pos-input,#mdbl-panel select{padding:0 10px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:#121317;color:#eaeaea;height:28px;line-height:28px;font-size:12px;box-sizing:border-box;display:inline-block;color-scheme:dark}#mdbl-panel .mdbl-select{width:140px;justify-self:end}#mdbl-panel input.mdbl-pos-input{width:75px;text-align:center;font-size:14px}#mdbl-panel input.mdbl-num-input{width:60px;text-align:center}#mdbl-panel .mdbl-actions{position:sticky;bottom:0;background:rgba(22,22,26,.96);display:flex;gap:10px;padding:6px 10px;border-top:1px solid rgba(255,255,255,.08)}#mdbl-panel button{padding:9px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:#1b1c20;color:#eaeaea;cursor:pointer}#mdbl-panel button.primary{background-color:var(--mdbl-theme)!important;border-color:var(--mdbl-theme)!important;color:#fff}#mdbl-sources{display:flex;flex-direction:column;gap:8px}.mdbl-source{background:#0f1115;border:1px solid rgba(255,255,255,.1);cursor:grab}.mdbl-src-left{display:flex;align-items:center;gap:10px}.mdbl-src-left img{height:16px;width:auto}.mdbl-src-left .name{font-size:13px}.mdbl-drag-handle{justify-self:start;opacity:.6;cursor:grab}#mdbl-key-box{background:#0f1115;border:1px solid rgba(255,255,255,.1);padding:10px;border-radius:12px}.mdbl-grid{display:grid;grid-template-columns:1fr;gap:10px}.mdbl-grid .grid-row{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:12px}.grid-right{display:flex;align-items:center;gap:8px;justify-content:flex-end}.mdbl-grid label{white-space:nowrap}.sw{display:inline-block;width:18px;height:18px;border-radius:4px;border:1px solid rgba(255,255,255,.25)}#mdbl-panel hr{border:0;border-top:1px solid rgba(255,255,255,.08);margin:4px 0}@media (max-width:600px){#mdbl-panel{width:96%!important;left:2%!important;right:2%!important;bottom:10px!important;top:auto!important;transform:none!important;max-height:80vh;--mdbl-right-col:40px}#mdbl-panel header{cursor:default}#mdbl-panel .mdbl-row,#mdbl-panel .mdbl-source{min-height:42px;padding:4px 8px}#mdbl-panel .mdbl-select{width:140px}}`,document.head.appendChild(e);const t=document.createElement("div");t.id="mdbl-panel",document.body.appendChild(t),window.MDBL_OPEN_SETTINGS=()=>{const e=getComputedStyle(document.documentElement).getPropertyValue("--theme-primary-color").trim()||"#2a6df4";t.style.setProperty("--mdbl-theme",e),renderMenuContent(t),t.style.display="block"};let n=!1,l,a,o,i;t.addEventListener("mousedown",e=>{window.innerWidth<=600||["INPUT","SELECT","BUTTON"].includes(e.target.tagName)||e.target.closest(".sec")||e.target.closest(".mdbl-section")||(n=!0,{left:l,top:a}=t.getBoundingClientRect(),o=e.clientX,i=e.clientY,t.style.right="auto",t.style.bottom="auto",t.style.left=l+"px",t.style.top=a+"px")}),document.addEventListener("mousemove",e=>{n&&(t.style.left=l+(e.clientX-o)+"px",t.style.top=a+(e.clientY-i)+"px")}),document.addEventListener("mouseup",()=>n=!1),document.addEventListener("mousedown",e=>{"block"===t.style.display&&!t.contains(e.target)&&"customEndsAt"!==e.target.id&&!e.target.closest(".mdbl-settings-btn")&&(t.style.display="none")})}function renderMenuContent(e){const t=(e,t)=>`<div class="mdbl-row"><span>${e}</span>${t}</div>`,n=(e,t,n,l,a,o)=>`\n    <div class="mdbl-slider-row">\n        <span>${e}</span>\n        <div class="slider-wrapper">\n            <input type="range" id="${t}" min="${l}" max="${a}" value="${o}">\n            <input type="number" id="${n}" value="${o}" class="mdbl-pos-input">\n        </div>\n    </div>\n    `;let l=`\n    <header>\n      <h3>Settings</h3>\n      <button id="mdbl-close">✕</button>\n    </header>\n    <div class="mdbl-section" id="mdbl-sec-keys">\n       ${!INJ_KEYS.MDBLIST&&!JSON.parse(localStorage.getItem("mdbl_keys")||"{}").MDBLIST?`<div id="mdbl-key-box" class="mdbl-source"><input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value="${JSON.parse(localStorage.getItem("mdbl_keys")||"{}").MDBLIST||""}"></div>`:""}\n    </div>\n    <div class="mdbl-section">\n       <div class="mdbl-subtle">Sources (drag to reorder)</div>\n       <div id="mdbl-sources"></div>\n       <hr>\n    </div>\n    <div class="mdbl-section" id="mdbl-sec-display">\n        <div class="mdbl-subtle">Display</div>\n        ${t("Color numbers",`<input type="checkbox" id="d_cnum" ${CFG.display.colorNumbers?"checked":""}>`)}\n        ${t("Color icons",`<input type="checkbox" id="d_cicon" ${CFG.display.colorIcons?"checked":""}>`)}\n        ${t("Show %",`<input type="checkbox" id="d_pct" ${CFG.display.showPercentSymbol?"checked":""}>`)}\n        ${t("Enable 24h format",`<input type="checkbox" id="d_24h" ${CFG.display.endsAt24h?"checked":""}>`)}\n        \n        ${n("Position X (px)","d_x_rng","d_x_num",-700,500,CFG.display.posX)}\n        ${n("Position Y (px)","d_y_rng","d_y_num",-500,500,CFG.display.posY)}\n\n        <hr>\n        \n        <div class="mdbl-subtle">Color bands &amp; palette</div>\n        <div class="mdbl-grid">\n            ${createColorBandRow("th_red","Rating",CFG.display.colorBands.redMax,"red")}\n            ${createColorBandRow("th_orange","Rating",CFG.display.colorBands.orangeMax,"orange")}\n            ${createColorBandRow("th_yg","Rating",CFG.display.colorBands.ygMax,"yg")}\n            <div class="grid-row">\n                <label id="label_top_tier">Top tier (≥ ${CFG.display.colorBands.ygMax+1}%)</label>\n                <div class="grid-right">\n                    <span class="sw" id="sw_mg" style="background:${SWATCHES.mg[CFG.display.colorChoice.mg]}"></span>\n                    <select id="col_mg" class="mdbl-select">${PALETTE_NAMES.mg.map((e,t)=>`<option value="${t}" ${CFG.display.colorChoice.mg===t?"selected":""}>${e}</option>`).join("")}</select>\n                </div>\n            </div>\n        </div>\n    </div>\n    <div class="mdbl-actions" style="padding-bottom:16px">\n      <button id="mdbl-btn-reset">Reset</button>\n      <button id="mdbl-btn-save" class="primary">Save & Apply</button>\n    </div>\n    `;e.innerHTML=l;const a=e.querySelector("#mdbl-sources");Object.keys(CFG.priorities).sort((e,t)=>CFG.priorities[e]-CFG.priorities[t]).forEach(e=>{if(!CFG.sources.hasOwnProperty(e))return;const t=document.createElement("div");t.className="mdbl-source mdbl-src-row",t.draggable=!0,t.dataset.key=e,t.innerHTML=`\n            <div class="mdbl-src-left">\n                <span class="mdbl-drag-handle">⋮⋮</span>\n                <img src="${LOGO[e]||""}" style="height:16px">\n                <span class="name" style="font-size:13px;margin-left:8px">${LABEL[e]}</span>\n            </div>\n            <input type="checkbox" class="src-check" ${CFG.sources[e]?"checked":""}>\n         `,a.appendChild(t)}),e.querySelector("#mdbl-close").onclick=()=>e.style.display="none";const o=()=>{CFG.display.colorNumbers=e.querySelector("#d_cnum").checked,CFG.display.colorIcons=e.querySelector("#d_cicon").checked,CFG.display.showPercentSymbol=e.querySelector("#d_pct").checked,CFG.display.endsAt24h=e.querySelector("#d_24h").checked,CFG.display.colorBands.redMax=parseInt(e.querySelector("#th_red").value)||50,CFG.display.colorBands.orangeMax=parseInt(e.querySelector("#th_orange").value)||69,CFG.display.colorBands.ygMax=parseInt(e.querySelector("#th_yg").value)||79,["red","orange","yg","mg"].forEach(t=>CFG.display.colorChoice[t]=parseInt(e.querySelector(`#col_${t}`).value)||0),e.querySelector("#label_top_tier").textContent=`Top tier (≥ ${CFG.display.colorBands.ygMax+1}%)`,["red","orange","yg","mg"].forEach(t=>e.querySelector(`#sw_${t}`).style.background=SWATCHES[t][CFG.display.colorChoice[t]]),refreshDomElements()};e.querySelectorAll("input, select").forEach(e=>{"range"===e.type||"text"===e.type||"number"===e.type?e.addEventListener("input",o):e.addEventListener("change",o)});const i=(t,n)=>{CFG.display[t]=parseInt(n),e.querySelector(`#d_${"posX"===t?"x":"y"}_rng`).value=n,e.querySelector(`#d_${"posX"===t?"x":"y"}_num`).value=n,updateGlobalStyles()},r=(t,n)=>e.querySelector(t).addEventListener("input",n);r("#d_x_rng",e=>i("posX",e.target.value)),r("#d_x_num",e=>i("posX",e.target.value)),r("#d_y_rng",e=>i("posY",e.target.value)),r("#d_y_num",e=>i("posY",e.target.value)),e.querySelectorAll(".src-check").forEach(e=>{e.addEventListener("change",e=>{CFG.sources[e.target.closest(".mdbl-source").dataset.key]=e.target.checked,updateGlobalStyles()})});let s=null;e.querySelectorAll(".mdbl-src-row").forEach(e=>{e.addEventListener("dragstart",e=>{s=e,e.dataTransfer.effectAllowed="move"}),e.addEventListener("dragover",t=>{if(t.preventDefault(),s&&s!==e){const n=e.parentNode,l=[...n.children],a=l.indexOf(s),o=l.indexOf(e);a<o?n.insertBefore(s,e.nextSibling):n.insertBefore(s,e),[...n.querySelectorAll(".mdbl-src-row")].forEach((e,t)=>CFG.priorities[e.dataset.key]=t+1),updateGlobalStyles()}})}),e.querySelector("#mdbl-btn-save").onclick=()=>{saveConfig();const t=e.querySelector("#mdbl-key-mdb");t&&t.value.trim()&&localStorage.setItem("mdbl_keys",JSON.stringify({MDBLIST:t.value.trim()})),location.reload()},e.querySelector("#mdbl-btn-reset").onclick=()=>{confirm("Reset all settings?")&&(localStorage.removeItem("mdbl_prefs"),location.reload())};const d=()=>{try{return window.MDBL_KEYS&&window.MDBL_KEYS.MDBLIST?String(window.MDBL_KEYS.MDBLIST):""}catch(e){return""}};if(d()){const t=e.querySelector("#mdbl-sec-keys");t&&(t.innerHTML="",t.style.display="none")}}function createColorBandRow(e,t,n,l){const a=PALETTE_NAMES[l].map((e,t)=>`<option value="${t}" ${CFG.display.colorChoice[l]===t?"selected":""}>${e}</option>`).join("");return`<div class="grid-row">\n        <label>${t} ≤ <input type="number" id="${e}" value="${n}" class="mdbl-num-input"> %</label>\n        <div class="grid-right">\n            <span class="sw" id="sw_${l}" style="background:${SWATCHES[l][CFG.display.colorChoice[l]]}"></span>\n            <select id="col_${l}" class="mdbl-select">${a}</select>\n        </div>\n    </div>`}
+let dragSrc = null;
+let themeColor = '#2a6df4';
+
+function getJellyfinColor() {
+    const rootVar = getComputedStyle(document.documentElement).getPropertyValue('--theme-primary-color').trim();
+    if(rootVar) return rootVar;
+    const btn = document.querySelector('.button-submit, .btnPlay, .main-button, .emby-button-foreground');
+    if(btn) {
+        const col = window.getComputedStyle(btn).backgroundColor;
+        if(col && col !== 'rgba(0, 0, 0, 0)') return col;
+    }
+    return '#2a6df4';
+}
+
+function initMenu() {
+    if(document.getElementById('mdbl-panel')) return;
+
+    const css = `
+    :root { --mdbl-right-col: 48px; }
+    #mdbl-panel { position:fixed; right:16px; bottom:70px; width:500px; max-height:90vh; overflow:auto; border-radius:14px;
+        border:1px solid rgba(255,255,255,0.15); background:rgba(22,22,26,0.94); backdrop-filter:blur(8px);
+        color:#eaeaea; z-index:100000; box-shadow:0 20px 40px rgba(0,0,0,0.45); display:none; font-family: sans-serif; }
+    #mdbl-panel header { position:sticky; top:0; background:rgba(22,22,26,0.98); padding:6px 12px; border-bottom:1px solid rgba(255,255,255,0.08);
+        display:flex; align-items:center; gap:8px; cursor:move; z-index:999; backdrop-filter:blur(8px); font-weight: bold; justify-content: space-between; }
+    #mdbl-close { 
+        width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; 
+        background: transparent; border: none; color: #aaa; font-size: 18px; cursor: pointer; 
+        padding: 0; border-radius: 6px; 
+    }
+    #mdbl-close:hover { background:rgba(255,255,255,0.06); color:#fff; }
+    #mdbl-panel .mdbl-section { padding:2px 12px; gap:2px; display:flex; flex-direction:column; }
+    #mdbl-panel .mdbl-subtle { color:#9aa0a6; font-size:12px; }
+    
+    #mdbl-panel .mdbl-row, #mdbl-panel .mdbl-source { display:grid; grid-template-columns:1fr var(--mdbl-right-col); align-items:center; gap:5px; padding:2px 6px; border-radius:6px; min-height: 32px; }
+    #mdbl-panel .mdbl-row { background:transparent; border:1px solid rgba(255,255,255,0.06); box-sizing:border-box; }
+    
+    .mdbl-slider-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 15px;
+        padding: 4px 6px;
+        border-radius: 6px;
+        background: transparent; 
+        border: 1px solid rgba(255,255,255,0.06);
+        min-height: 32px;
+    }
+    .mdbl-slider-row > span { white-space: nowrap; width: 110px; flex-shrink: 0; }
+    .mdbl-slider-row .slider-wrapper {
+        flex-grow: 1;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        justify-content: flex-end;
+        width: 100%;
+    }
+    
+    #mdbl-panel input[type="checkbox"] { 
+        transform: scale(1.2); cursor: pointer; 
+        accent-color: var(--mdbl-theme); 
+    }
+    #mdbl-panel input[type="range"] { 
+        flex-grow: 1; 
+        width: 100%;
+        margin: 0; cursor: pointer; accent-color: var(--mdbl-theme); 
+    }
+    
+    #mdbl-panel input[type="text"] { width:100%; padding:10px 0; border:0; background:transparent; color:#eaeaea; font-size:14px; outline:none; }
+    
+    #mdbl-panel select, #mdbl-panel input.mdbl-pos-input, #mdbl-panel input.mdbl-num-input {
+        padding:0 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:#121317; color:#eaeaea;
+        height:28px; line-height: 28px; font-size: 12px; box-sizing:border-box; display:inline-block; color-scheme: dark;
+    }
+    #mdbl-panel .mdbl-select { width:140px; justify-self:end; }
+    #mdbl-panel input.mdbl-pos-input { width: 75px; text-align: center; font-size: 14px; }
+    #mdbl-panel input.mdbl-num-input { width: 60px; text-align: center; }
+
+    #mdbl-panel .mdbl-actions { position:sticky; bottom:0; background:rgba(22,22,26,0.96); display:flex; gap:10px; padding:6px 10px; border-top:1px solid rgba(255,255,255,0.08); }
+    #mdbl-panel button { padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:#1b1c20; color:#eaeaea; cursor:pointer; }
+    
+    #mdbl-panel button.primary { 
+        background-color: var(--mdbl-theme) !important; 
+        border-color: var(--mdbl-theme) !important; 
+        color: #fff; 
+    }
+    
+    #mdbl-sources { display:flex; flex-direction:column; gap:8px; }
+    .mdbl-source { background:#0f1115; border:1px solid rgba(255,255,255,0.1); cursor: grab; }
+    .mdbl-src-left { display:flex; align-items:center; gap:10px; }
+    .mdbl-src-left img { height:16px; width:auto; }
+    .mdbl-src-left .name { font-size:13px; }
+    .mdbl-drag-handle { justify-self:start; opacity:0.6; cursor:grab; }
+    #mdbl-key-box { background:#0f1115; border:1px solid rgba(255,255,255,0.1); padding:10px; border-radius:12px; }
+    
+    .mdbl-grid { display:grid; grid-template-columns:1fr; gap:10px; }
+    .mdbl-grid .grid-row { display:grid; grid-template-columns:1fr 1fr; align-items:center; gap:12px; }
+    .grid-right { display:flex; align-items:center; gap:8px; justify-content:flex-end; }
+    .mdbl-grid label { white-space: nowrap; }
+    .sw { display:inline-block; width:18px; height:18px; border-radius:4px; border:1px solid rgba(255,255,255,0.25); }
+    
+    #mdbl-panel hr { border:0; border-top:1px solid rgba(255,255,255,0.08); margin:4px 0; }
+    #mdbl-panel .mdbl-actions { display:flex; align-items:center; gap:8px; }
+    #mdbl-panel .mdbl-actions .mdbl-grow { flex:1; }
+
+    @media (max-width: 600px) {
+        #mdbl-panel {
+            width: 96% !important; left: 2% !important; right: 2% !important; bottom: 10px !important; top: auto !important;
+            transform: none !important; max-height: 80vh;
+            --mdbl-right-col: 40px; 
+        }
+        #mdbl-panel header { cursor: default; }
+        #mdbl-panel .mdbl-row, #mdbl-panel .mdbl-source { min-height: 42px; padding: 4px 8px; }
+        #mdbl-panel .mdbl-select { width: 140px; }
+    }
+    `;
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
+
+    const panel = document.createElement('div');
+    panel.id = 'mdbl-panel';
+    document.body.appendChild(panel);
+
+    window.MDBL_OPEN_SETTINGS = () => {
+        const col = getJellyfinColor();
+        panel.style.setProperty('--mdbl-theme', col);
+        renderMenuContent(panel);
+        panel.style.display = 'block';
+    };
+
+    let isDrag = false, sx, sy, lx, ly;
+    panel.addEventListener('mousedown', (e) => {
+        if (window.innerWidth <= 600 || ['INPUT','SELECT','BUTTON'].includes(e.target.tagName)) return;
+        if (e.target.closest('.sec') || e.target.closest('.mdbl-section')) return; 
+        isDrag = true; const r = panel.getBoundingClientRect();
+        lx = r.left; ly = r.top; sx = e.clientX; sy = e.clientY;
+        panel.style.right = 'auto'; panel.style.bottom = 'auto';
+        panel.style.left = lx + 'px'; panel.style.top = ly + 'px';
+    });
+    document.addEventListener('mousemove', (e) => {
+        if (!isDrag) return;
+        panel.style.left = (lx + (e.clientX - sx)) + 'px';
+        panel.style.top = (ly + (e.clientY - sy)) + 'px';
+    });
+    document.addEventListener('mouseup', () => isDrag = false);
+    
+    document.addEventListener('mousedown', (e) => {
+        if (panel.style.display === 'block' && !panel.contains(e.target) && e.target.id !== 'customEndsAt' && !e.target.closest('.mdbl-settings-btn')) {
+            panel.style.display = 'none';
+        }
+    });
+}
+
+function renderMenuContent(panel) {
+    const row = (label, input) => `<div class="mdbl-row"><span>${label}</span>${input}</div>`;
+    
+    const sliderRow = (label, idRange, idNum, min, max, val) => `
+    <div class="mdbl-slider-row">
+        <span>${label}</span>
+        <div class="slider-wrapper">
+            <input type="range" id="${idRange}" min="${min}" max="${max}" value="${val}">
+            <input type="number" id="${idNum}" value="${val}" class="mdbl-pos-input">
+        </div>
+    </div>
+    `;
+    
+    let html = `
+    <header>
+      <h3>Settings</h3>
+      <button id="mdbl-close">✕</button>
+    </header>
+    <div class="mdbl-section" id="mdbl-sec-keys">
+       ${(!INJ_KEYS.MDBLIST && !JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST) ? `<div id="mdbl-key-box" class="mdbl-source"><input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value="${(JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST)||''}"></div>` : ''}
+    </div>
+    <div class="mdbl-section">
+       <div class="mdbl-subtle">Sources (drag to reorder)</div>
+       <div id="mdbl-sources"></div>
+       <hr>
+    </div>
+    <div class="mdbl-section" id="mdbl-sec-display">
+        <div class="mdbl-subtle">Display</div>
+        ${row('Color numbers', `<input type="checkbox" id="d_cnum" ${CFG.display.colorNumbers?'checked':''}>`)}
+        ${row('Color icons', `<input type="checkbox" id="d_cicon" ${CFG.display.colorIcons?'checked':''}>`)}
+        ${row('Show %', `<input type="checkbox" id="d_pct" ${CFG.display.showPercentSymbol?'checked':''}>`)}
+        ${row('Enable 24h format', `<input type="checkbox" id="d_24h" ${CFG.display.endsAt24h?'checked':''}>`)}
+        
+        ${sliderRow('Position X (px)', 'd_x_rng', 'd_x_num', -700, 500, CFG.display.posX)}
+        ${sliderRow('Position Y (px)', 'd_y_rng', 'd_y_num', -500, 500, CFG.display.posY)}
+
+        <hr>
+        
+        <div class="mdbl-subtle">Color bands &amp; palette</div>
+        <div class="mdbl-grid">
+            ${createColorBandRow('th_red', 'Rating', CFG.display.colorBands.redMax, 'red')}
+            ${createColorBandRow('th_orange', 'Rating', CFG.display.colorBands.orangeMax, 'orange')}
+            ${createColorBandRow('th_yg', 'Rating', CFG.display.colorBands.ygMax, 'yg')}
+            <div class="grid-row">
+                <label id="label_top_tier">Top tier (≥ ${CFG.display.colorBands.ygMax+1}%)</label>
+                <div class="grid-right">
+                    <span class="sw" id="sw_mg" style="background:${SWATCHES.mg[CFG.display.colorChoice.mg]}"></span>
+                    <select id="col_mg" class="mdbl-select">${PALETTE_NAMES.mg.map((n,i)=>`<option value="${i}" ${CFG.display.colorChoice.mg===i?'selected':''}>${n}</option>`).join('')}</select>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="mdbl-actions" style="padding-bottom:16px">
+      <button id="mdbl-btn-reset">Reset</button>
+      <button id="mdbl-btn-save" class="primary">Save & Apply</button>
+    </div>
+    `;
+    
+    panel.innerHTML = html;
+    
+    const sList = panel.querySelector('#mdbl-sources');
+    Object.keys(CFG.priorities).sort((a,b) => CFG.priorities[a]-CFG.priorities[b]).forEach(k => {
+         if (!CFG.sources.hasOwnProperty(k)) return;
+         const div = document.createElement('div');
+         div.className = 'mdbl-source mdbl-src-row';
+         div.draggable = true;
+         div.dataset.key = k;
+         div.innerHTML = `
+            <div class="mdbl-src-left">
+                <span class="mdbl-drag-handle">⋮⋮</span>
+                <img src="${LOGO[k]||''}" style="height:16px">
+                <span class="name" style="font-size:13px;margin-left:8px">${LABEL[k]}</span>
+            </div>
+            <input type="checkbox" class="src-check" ${CFG.sources[k]?'checked':''}>
+         `;
+         sList.appendChild(div);
+    });
+
+    panel.querySelector('#mdbl-close').onclick = () => panel.style.display = 'none';
+    
+    const updateLiveAll = () => {
+        CFG.display.colorNumbers = panel.querySelector('#d_cnum').checked;
+        CFG.display.colorIcons = panel.querySelector('#d_cicon').checked;
+        CFG.display.showPercentSymbol = panel.querySelector('#d_pct').checked;
+        CFG.display.endsAt24h = panel.querySelector('#d_24h').checked; 
+        
+        CFG.display.colorBands.redMax = parseInt(panel.querySelector('#th_red').value)||50;
+        CFG.display.colorBands.orangeMax = parseInt(panel.querySelector('#th_orange').value)||69;
+        CFG.display.colorBands.ygMax = parseInt(panel.querySelector('#th_yg').value)||79;
+        
+        ['red','orange','yg','mg'].forEach(k => CFG.display.colorChoice[k] = parseInt(panel.querySelector(`#col_${k}`).value)||0);
+        
+        panel.querySelector('#label_top_tier').textContent = `Top tier (≥ ${CFG.display.colorBands.ygMax+1}%)`;
+        ['red','orange','yg','mg'].forEach(k => panel.querySelector(`#sw_${k}`).style.background = SWATCHES[k][CFG.display.colorChoice[k]]);
+        
+        refreshDomElements();
+    };
+    panel.querySelectorAll('input, select').forEach(el => {
+        if(el.type === 'range' || el.type === 'text' || el.type === 'number') el.addEventListener('input', updateLiveAll);
+        else el.addEventListener('change', updateLiveAll);
+    });
+
+    const updatePos = (axis, val) => {
+        CFG.display[axis] = parseInt(val);
+        panel.querySelector(`#d_${axis === 'posX' ? 'x' : 'y'}_rng`).value = val;
+        panel.querySelector(`#d_${axis === 'posX' ? 'x' : 'y'}_num`).value = val;
+        updateGlobalStyles();
+    };
+    const bindPos = (id, fn) => panel.querySelector(id).addEventListener('input', fn);
+    bindPos('#d_x_rng', (e) => updatePos('posX', e.target.value));
+    bindPos('#d_x_num', (e) => updatePos('posX', e.target.value));
+    bindPos('#d_y_rng', (e) => updatePos('posY', e.target.value));
+    bindPos('#d_y_num', (e) => updatePos('posY', e.target.value));
+    
+    panel.querySelectorAll('.src-check').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+            CFG.sources[e.target.closest('.mdbl-source').dataset.key] = e.target.checked;
+            updateGlobalStyles();
+        });
+    });
+
+    let dragSrc = null;
+    panel.querySelectorAll('.mdbl-src-row').forEach(row => {
+        row.addEventListener('dragstart', e => { dragSrc = row; e.dataTransfer.effectAllowed = 'move'; });
+        row.addEventListener('dragover', e => { 
+            e.preventDefault(); 
+            if (dragSrc && dragSrc !== row) {
+                const list = row.parentNode;
+                const all = [...list.children];
+                const srcI = all.indexOf(dragSrc);
+                const tgtI = all.indexOf(row);
+                if (srcI < tgtI) list.insertBefore(dragSrc, row.nextSibling);
+                else list.insertBefore(dragSrc, row);
+                
+                [...list.querySelectorAll('.mdbl-src-row')].forEach((r, i) => CFG.priorities[r.dataset.key] = i+1);
+                updateGlobalStyles();
+            }
+        });
+    });
+
+    panel.querySelector('#mdbl-btn-save').onclick = () => {
+        saveConfig();
+        const ki = panel.querySelector('#mdbl-key-mdb');
+        if(ki && ki.value.trim()) localStorage.setItem('mdbl_keys', JSON.stringify({MDBLIST: ki.value.trim()}));
+        location.reload();
+    };
+    panel.querySelector('#mdbl-btn-reset').onclick = () => {
+        if(confirm('Reset all settings?')) { localStorage.removeItem('mdbl_prefs'); location.reload(); }
+    };
+    
+    const getInjectorKey = () => { try { return (window.MDBL_KEYS && window.MDBL_KEYS.MDBLIST) ? String(window.MDBL_KEYS.MDBLIST) : ''; } catch { return ''; } };
+    if (getInjectorKey()) {
+       const kw = panel.querySelector('#mdbl-sec-keys');
+       if(kw) { kw.innerHTML = ''; kw.style.display = 'none'; }
+    }
+}
+
+function createColorBandRow(id, lbl, val, key) {
+    const opts = PALETTE_NAMES[key].map((n,i) => `<option value="${i}" ${CFG.display.colorChoice[key]===i?'selected':''}>${n}</option>`).join('');
+    return `<div class="grid-row">
+        <label>${lbl} ≤ <input type="number" id="${id}" value="${val}" class="mdbl-num-input"> %</label>
+        <div class="grid-right">
+            <span class="sw" id="sw_${key}" style="background:${SWATCHES[key][CFG.display.colorChoice[key]]}"></span>
+            <select id="col_${key}" class="mdbl-select">${opts}</select>
+        </div>
+    </div>`;
+}
