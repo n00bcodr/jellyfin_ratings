@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.43 — Link Logic Upgrade)
+// @name         Jellyfin Ratings (v10.1.44 — Link Perfected)
 // @namespace    https://mdblist.com
-// @version      10.1.43
-// @description  Master Rating links to Wikipedia. Gear icon first. Fixes Metacritic User, Roger Ebert & Anime links (MAL/AniList). Stable loading.
+// @version      10.1.44
+// @description  Master Rating links to Wikipedia. Gear icon first. Fixes TMDB 404s, AniList IDs, and Roger Ebert links.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.43 loading...');
+console.log('[Jellyfin Ratings] v10.1.44 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -317,31 +317,30 @@ function updateEndsAt() {
 function generateLink(key, ids, apiLink, type, title) {
     const sLink = String(apiLink || '');
     const safeTitle = encodeURIComponent(title || '');
+    // Convert 'show' to 'tv' for external sites
+    const safeType = (type === 'show' || type === 'tv') ? 'tv' : 'movie';
     
-    // If it's a full URL, trust it mostly, unless it's a specific broken provider
+    // If it's a full URL, trust it mostly (except for known issues)
     if (sLink.startsWith('http') && key !== 'metacritic_user') return sLink;
 
     switch(key) {
         case 'imdb': 
             return ids.imdb ? `https://www.imdb.com/title/${ids.imdb}/` : '#';
         case 'tmdb': 
-            return ids.tmdb ? `https://www.themoviedb.org/${type}/${ids.tmdb}` : '#';
+            return ids.tmdb ? `https://www.themoviedb.org/${safeType}/${ids.tmdb}` : '#';
         case 'trakt': 
-            return ids.trakt ? `https://trakt.tv/${type}s/${ids.trakt}` : (ids.imdb ? `https://trakt.tv/search/imdb/${ids.imdb}` : '#');
+            return ids.trakt ? `https://trakt.tv/${safeType}s/${ids.trakt}` : (ids.imdb ? `https://trakt.tv/search/imdb/${ids.imdb}` : '#');
         case 'letterboxd': 
             if (sLink.includes('/film/') || sLink.includes('/slug/')) {
                 return `https://letterboxd.com${sLink.startsWith('/') ? '' : '/'}${sLink}`;
             }
             return ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : '#';
         
-        // --- METACRITIC (Same link for user and critic) ---
         case 'metacritic_critic':
         case 'metacritic_user': 
-            // If API gives relative path
             if (sLink.startsWith('/')) return `https://www.metacritic.com${sLink}`;
-            // Fallback construct based on type/slug
             const slug = localSlug(title);
-            return slug ? `https://www.metacritic.com/${type === 'show' ? 'tv' : 'movie'}/${slug}` : '#';
+            return slug ? `https://www.metacritic.com/${safeType}/${slug}` : '#';
 
         case 'rotten_tomatoes_critic':
         case 'rotten_tomatoes_audience': 
@@ -349,24 +348,20 @@ function generateLink(key, ids, apiLink, type, title) {
             if (sLink.length > 2) return `https://www.rottentomatoes.com/m/${sLink}`;
             return '#';
             
-        // --- ANIME FIXES ---
         case 'anilist': 
-            // If we have an ID in ids.anilist, use it
+            // Prioritize IDs from map, then try url field
             if (ids.anilist) return `https://anilist.co/anime/${ids.anilist}`;
-            // If apiLink is just numbers
             if (/^\d+$/.test(sLink)) return `https://anilist.co/anime/${sLink}`;
             return 'https://anilist.co/';
             
         case 'myanimelist': 
-            // If we have an ID in ids.mal, use it
             if (ids.mal) return `https://myanimelist.net/anime/${ids.mal}`;
-            // If apiLink is just numbers
             if (/^\d+$/.test(sLink)) return `https://myanimelist.net/anime/${sLink}`;
             return 'https://myanimelist.net/';
             
         case 'roger_ebert':
              if (sLink.startsWith('/')) return `https://www.rogerebert.com${sLink}`;
-             // Fallback search
+             // Fallback to search if no direct link
              return `https://www.rogerebert.com/search?q=${safeTitle}`;
 
         default:
@@ -428,14 +423,13 @@ function renderRatings(container, data, pageImdbId, type) {
 
     let html = '';
     
-    // Build ID object including Anime IDs
     const ids = { 
         imdb: data.ids?.imdb || data.imdbid || pageImdbId, 
         tmdb: data.ids?.tmdb || data.id || data.tmdbid || data.tmdb_id, 
         trakt: data.ids?.trakt || data.traktid || data.trakt_id, 
         slug: data.ids?.slug || data.slug,
-        mal: data.ids?.mal,           // <--- Added MAL ID support
-        anilist: data.ids?.anilist    // <--- Added AniList ID support
+        mal: data.ids?.mal,           
+        anilist: data.ids?.anilist    
     };
     
     const add = (k, v, apiLink, c, tit, kind) => {
@@ -466,8 +460,6 @@ function renderRatings(container, data, pageImdbId, type) {
                 else { add('metacritic_critic', v, apiLink, c, 'Metacritic', 'Reviews'); trackMaster(v, 'metacritic_critic'); }
             }
             else if (s.includes('roger')) { add('roger_ebert', v, apiLink, c, 'Roger Ebert', 'Reviews'); trackMaster(v, 'roger_ebert'); }
-            
-            // ANIME HANDLERS
             else if (s.includes('anilist')) { add('anilist', v, apiLink, c, 'AniList', 'Votes'); trackMaster(v, 'anilist'); }
             else if (s.includes('myanimelist')) { add('myanimelist', v, apiLink, c, 'MAL', 'Votes'); trackMaster(v, 'myanimelist'); }
         });
