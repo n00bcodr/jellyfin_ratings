@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.30 — Debug & Verify)
+// @name         Jellyfin Ratings (v10.1.29 — Persistent UI Fix)
 // @namespace    https://mdblist.com
-// @version      10.1.30
-// @description  Master Rating links to Wikipedia. Gear icon first. Hides default ratings. Includes onscreen debug status to diagnose missing ratings.
+// @version      10.1.29
+// @description  Master Rating links to Wikipedia. Gear icon first. Fixes disappearing status text.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.30 loading...');
+console.log('[Jellyfin Ratings] v10.1.29 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -163,7 +163,8 @@ function updateGlobalStyles() {
         .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; }
         
         .mdbl-status-text {
-            font-size: 11px; opacity: 0.7; margin-left: 5px; color: #aaa;
+            font-size: 11px; opacity: 0.8; margin-left: 5px; color: #ffeb3b;
+            white-space: nowrap;
         }
 
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; position: relative; z-index: 10; }
@@ -328,34 +329,44 @@ function renderGearIcon(container, statusText = '') {
         return;
     }
     
+    // Create Button
     const btn = document.createElement('div');
     btn.className = 'mdbl-rating-item mdbl-settings-btn';
     btn.title = 'Settings';
     btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>';
     btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
 
+    // Create Status
     const status = document.createElement('span');
     status.className = 'mdbl-status-text';
-    status.textContent = statusText || 'Init...';
+    status.textContent = statusText || '...';
 
     container.appendChild(btn);
     container.appendChild(status);
     updateGlobalStyles();
 }
 
-function updateStatus(container, text, color = '#aaa') {
+function updateStatus(container, text, color = '#ffeb3b') {
+    // FIX: If container was cleared, re-render basic structure first
+    if (!container.querySelector('.mdbl-status-text')) {
+        renderGearIcon(container, text);
+    }
     const st = container.querySelector('.mdbl-status-text');
     if(st) { st.textContent = text; st.style.color = color; }
 }
 
 function renderRatings(container, data, pageImdbId, type) {
-    const btn = container.querySelector('.mdbl-settings-btn');
+    // 1. Wipe content but handle persistence
     container.innerHTML = ''; 
-    if(btn) {
-        container.appendChild(btn);
-        btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
-    } else renderGearIcon(container);
+    
+    // 2. Re-add Gear Button
+    const btn = document.createElement('div');
+    btn.className = 'mdbl-rating-item mdbl-settings-btn';
+    btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>';
+    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
+    container.appendChild(btn);
 
+    // 3. Process Ratings
     let html = '';
     const add = (k, v, lnk, cnt, tit, kind) => html += createRatingHtml(k, v, lnk, cnt, tit, kind);
     const ids = { imdb: data.imdbid || data.imdb_id || pageImdbId, tmdb: data.id || data.tmdbid || data.tmdb_id, trakt: data.traktid || data.trakt_id, slug: data.slug || data.ids?.slug };
@@ -391,12 +402,14 @@ function renderRatings(container, data, pageImdbId, type) {
             const wikiUrl = `https://duckduckgo.com/?q=!ducky+site:en.wikipedia.org+${encodeURIComponent(data.title || '')}+${(data.year || '')}+${type === 'movie' ? 'film' : 'TV series'}`;
             add('master', avg, wikiUrl, masterCount, 'Master Rating', 'Sources');
         }
+        
         const contentDiv = document.createElement('span');
         contentDiv.innerHTML = html;
         while (contentDiv.firstChild) container.appendChild(contentDiv.firstChild);
         refreshDomElements();
     } else {
-        updateStatus(container, 'No ratings found', '#e53935');
+        // Explicitly Re-Add status if empty
+        updateStatus(container, '0 Ratings Found', '#e53935');
     }
 }
 
@@ -429,7 +442,10 @@ function fetchRatings(container, id, type, apiMode) {
                 const d = JSON.parse(r.responseText);
                 localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: d }));
                 renderRatings(container, d, currentImdbId, type);
-            } catch(e) { console.error('[MDBList] Parse Error', e); updateStatus(container, 'Parse Error', '#e53935'); }
+            } catch(e) { 
+                console.error('[MDBList] Parse Error', e); 
+                updateStatus(container, 'Parse Error', '#e53935');
+            }
         },
         onerror: e => { 
             container.dataset.fetching = 'false'; 
@@ -445,41 +461,49 @@ function getJellyfinId() {
     return params.get('id');
 }
 
-// === HYBRID ID HUNTER (INTERNAL API + FALLBACK) ===
+// === ROBUST ID HUNTER (DOM ONLY) ===
 
-function resolveIds(jellyfinId, container) {
-    updateStatus(container, 'Scanning...');
-    
-    // 1. Try Internal Jellyfin API (Safest)
-    if (window.ApiClient) {
-        try {
-            const userId = window.ApiClient.getCurrentUserId();
-            window.ApiClient.getItem(userId, jellyfinId).then(item => {
-                let extId = null, mode = 'tmdb', type = 'movie';
-                if (item.Type === 'Series' || item.Type === 'Episode' || item.Type === 'Season') type = 'show';
-                
-                if (item.ProviderIds && item.ProviderIds.Tmdb) { extId = item.ProviderIds.Tmdb; mode = 'tmdb'; }
-                else if (item.ProviderIds && item.ProviderIds.Imdb) { extId = item.ProviderIds.Imdb; mode = 'imdb'; }
-                
-                if (extId) {
-                    container.dataset.tmdbId = extId;
-                    container.dataset.fetched = 'true';
-                    updateStatus(container, `Found ${mode.toUpperCase()}: ${extId}`);
-                    fetchRatings(container, extId, type, mode);
-                } else {
-                    fallbackDomScrape(container); // API worked but empty
-                }
-            }).catch(() => fallbackDomScrape(container));
-        } catch(e) { fallbackDomScrape(container); }
-    } else {
-        fallbackDomScrape(container);
+function scan() {
+    updateEndsAt();
+    const currentJellyfinId = getJellyfinId();
+    const allWrappers = document.querySelectorAll('.itemMiscInfo');
+    let wrapper = null;
+    for (const el of allWrappers) { if (el.offsetParent !== null) { wrapper = el; break; } }
+    if (!wrapper) return;
+
+    let container = wrapper.querySelector('.mdblist-rating-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'mdblist-rating-container';
+        container.dataset.jellyfinId = currentJellyfinId;
+        wrapper.appendChild(container);
+        renderGearIcon(container, 'Scanning...');
+        container.dataset.retries = 0; 
+    } else if (container.dataset.jellyfinId !== currentJellyfinId) {
+        container.innerHTML = '';
+        renderGearIcon(container, 'Scanning...');
+        container.dataset.jellyfinId = currentJellyfinId;
+        container.dataset.tmdbId = '';
+        container.dataset.fetched = '';
+        container.dataset.fetching = 'false';
+        container.dataset.retries = 0;
     }
-}
 
-function fallbackDomScrape(container) {
+    if (container.dataset.fetched === 'true') return;
+
+    // Retry Logic
+    let retries = parseInt(container.dataset.retries || '0');
+    if (retries > 20) {
+        if (!container.querySelector('.mdbl-status-text').textContent.includes('No ID')) {
+             updateStatus(container, 'No ID found', '#e53935');
+        }
+        return;
+    }
+    container.dataset.retries = retries + 1;
+
     let type = 'movie', id = null, mode = 'tmdb';
     
-    // Scan Links
+    // 1. TMDB
     for (let i = 0; i < document.links.length; i++) {
         const href = document.links[i].href;
         if (href.includes('themoviedb.org')) {
@@ -487,6 +511,7 @@ function fallbackDomScrape(container) {
             if (m) { type = m[1] === 'tv' ? 'show' : 'movie'; id = m[2]; mode = 'tmdb'; break; }
         }
     }
+    // 2. IMDb
     if (!id) {
         for (let i = 0; i < document.links.length; i++) {
             const href = document.links[i].href;
@@ -500,53 +525,7 @@ function fallbackDomScrape(container) {
     if (id) {
         container.dataset.tmdbId = id;
         container.dataset.fetched = 'true';
-        updateStatus(container, `Found ${mode.toUpperCase()}: ${id}`);
         fetchRatings(container, id, type, mode);
-    } else {
-        // Keep checking for a few seconds
-        let retries = parseInt(container.dataset.retries || '0');
-        if (retries < 15) {
-            container.dataset.retries = retries + 1;
-            updateStatus(container, 'Searching...');
-        } else {
-            updateStatus(container, 'No ID found', '#e53935');
-        }
-    }
-}
-
-function scan() {
-    updateEndsAt();
-    const currentJellyfinId = getJellyfinId();
-    const allWrappers = document.querySelectorAll('.itemMiscInfo');
-    let wrapper = null;
-    for (const el of allWrappers) { if (el.offsetParent !== null) { wrapper = el; break; } }
-    if (!wrapper) return;
-
-    let container = wrapper.querySelector('.mdblist-rating-container');
-    
-    // Init Container
-    if (!container) {
-        container = document.createElement('div');
-        container.className = 'mdblist-rating-container';
-        container.dataset.jellyfinId = currentJellyfinId;
-        wrapper.appendChild(container);
-        renderGearIcon(container, 'Init...');
-        if(currentJellyfinId) resolveIds(currentJellyfinId, container);
-    } 
-    // Navigation Detected (ID Changed)
-    else if (container.dataset.jellyfinId !== currentJellyfinId) {
-        container.innerHTML = '';
-        renderGearIcon(container, 'Init...');
-        container.dataset.jellyfinId = currentJellyfinId;
-        container.dataset.tmdbId = '';
-        container.dataset.fetched = '';
-        container.dataset.fetching = 'false';
-        container.dataset.retries = 0;
-        if(currentJellyfinId) resolveIds(currentJellyfinId, container);
-    }
-    // Continue fallback search if not fetched
-    else if (container.dataset.fetched !== 'true' && container.dataset.fetching !== 'true') {
-        fallbackDomScrape(container);
     }
 }
 
