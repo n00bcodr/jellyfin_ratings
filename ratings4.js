@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.25 — Dual API Fix)
+// @name         Jellyfin Ratings (v10.1.24 — Brute Force Hunter)
 // @namespace    https://mdblist.com
-// @version      10.1.25
-// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings. Correctly handles IMDb vs TMDB IDs.
+// @version      10.1.24
+// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings. Aggressively scans for IDs.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.25 loading...');
+console.log('[Jellyfin Ratings] v10.1.24 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -190,7 +190,6 @@ function updateGlobalStyles() {
             line-height: 10px;
             opacity: 0.5;
             margin-right: 5px;
-            color: #fff;
         }
         @keyframes mdbl-blink { 0% {opacity:0.2} 50% {opacity:0.8} 100% {opacity:0.2} }
 
@@ -393,7 +392,7 @@ function renderGearIcon(container) {
     <div class="mdbl-rating-item mdbl-settings-btn" title="Settings" style="order: -9999 !important;" onclick="event.preventDefault(); event.stopPropagation(); window.MDBL_OPEN_SETTINGS_GL();">
        <svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
     </div>
-    <span class="mdbl-scan-dot" title="Looking for IDs...">...</span>
+    <span class="mdbl-scan-dot">...</span>
     `;
     updateGlobalStyles();
 }
@@ -501,21 +500,10 @@ function renderRatings(container, data, pageImdbId, type) {
 
 window.MDBL_OPEN_SETTINGS_GL = () => openSettingsMenu();
 
-// MODIFIED: Accepts apiMode to distinguish between TMDB and IMDB calls
-function fetchRatings(container, id, type, apiMode) {
+function fetchRatings(container, tmdbId, type) {
     if (container.dataset.fetching === 'true') return; 
     
-    // Construct correct URL based on ID type
-    let apiUrl;
-    if (apiMode === 'imdb') {
-        apiUrl = `https://api.mdblist.com/imdb/${id}?apikey=${API_KEY}`;
-        console.log(`[MDBList] Fetching via IMDB: ${id}`);
-    } else {
-        apiUrl = `https://api.mdblist.com/tmdb/${type}/${id}?apikey=${API_KEY}`;
-        console.log(`[MDBList] Fetching via TMDB: ${id}`);
-    }
-
-    const cacheKey = `${NS}c_${id}`;
+    const cacheKey = `${NS}c_${tmdbId}`;
     try {
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
@@ -530,17 +518,11 @@ function fetchRatings(container, id, type, apiMode) {
     container.dataset.fetching = 'true';
     GM_xmlhttpRequest({
         method: 'GET',
-        url: apiUrl,
+        url: `https://api.mdblist.com/tmdb/${type}/${tmdbId}?apikey=${API_KEY}`,
         onload: r => {
             container.dataset.fetching = 'false';
             try {
-                if (r.status !== 200) { 
-                    console.error('[MDBList] API Error:', r.status); 
-                    // Visual feedback for error: turn dots red
-                    const dot = container.querySelector('.mdbl-scan-dot');
-                    if(dot) { dot.style.color = 'red'; dot.title = `Error: ${r.status}`; }
-                    return; 
-                }
+                if (r.status !== 200) { console.error('[MDBList] API Error:', r.status); return; }
                 const d = JSON.parse(r.responseText);
                 localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: d }));
                 renderRatings(container, d, currentImdbId, type);
@@ -555,6 +537,7 @@ function fetchRatings(container, id, type, apiMode) {
 
 // === BRUTE FORCE ID HUNTER ===
 
+// Helper to extract Jellyfin Internal ID
 function getJellyfinId() {
     const url = window.location.hash || window.location.search;
     const params = new URLSearchParams(url.includes('?') ? url.split('?')[1] : url);
@@ -566,6 +549,7 @@ function scan() {
 
     const currentJellyfinId = getJellyfinId();
 
+    // 1. Find the VISIBLE wrapper
     const allWrappers = document.querySelectorAll('.itemMiscInfo');
     let wrapper = null;
     for (const el of allWrappers) {
@@ -577,6 +561,7 @@ function scan() {
 
     if (!wrapper) return; 
 
+    // 2. Ensure Container & Gear Icon Exist
     let container = wrapper.querySelector('.mdblist-rating-container');
     if (!container) {
         container = document.createElement('div');
@@ -586,6 +571,7 @@ function scan() {
         renderGearIcon(container);
     } 
     else if (container.dataset.jellyfinId !== currentJellyfinId) {
+        // New page detected
         container.innerHTML = '';
         renderGearIcon(container);
         container.dataset.jellyfinId = currentJellyfinId;
@@ -594,14 +580,16 @@ function scan() {
         container.dataset.fetching = 'false';
     }
 
+    // 3. Stop if we already have visible ratings
     if (container.querySelector('.mdbl-rating-item:not(.mdbl-settings-btn)')) return;
 
     // 4. BRUTE FORCE ID SEARCH (Scanning ALL links)
-    let type = 'movie'; 
+    // We iterate document.links which is faster than querySelectorAll for all anchors
+    // This catches external links even if Jellyfin puts them in weird places
+    let type = 'movie'; // Default
     let id = null;
-    let apiMode = 'tmdb'; // Default mode
 
-    // 1. Try TMDB (Preferred)
+    // First try: TMDB
     for (let i = 0; i < document.links.length; i++) {
         const href = document.links[i].href;
         if (href.includes('themoviedb.org')) {
@@ -609,33 +597,36 @@ function scan() {
             if (m) {
                 type = m[1] === 'tv' ? 'show' : 'movie';
                 id = m[2];
-                apiMode = 'tmdb';
                 break;
             }
         }
     }
 
-    // 2. Try IMDB (Fallback) - AND SET API MODE TO IMDB
+    // Second try: IMDb (Fallback if no TMDB link found)
     if (!id) {
         for (let i = 0; i < document.links.length; i++) {
             const href = document.links[i].href;
             if (href.includes('imdb.com/title/')) {
                 const m = href.match(/tt\d+/);
                 if (m) {
-                    id = m[0]; // Capture ttXXXXX
-                    apiMode = 'imdb'; // IMPORTANT: Switch API mode
-                    break;
+                    id = m[0]; // We use the IMDB ID directly
+                    // Note: MDBList API supports IMDB ID query via ?imdb_id=... but the URL structure is slightly different.
+                    // However, standard MDBList endpoint usually expects TMDB ID.
+                    // For simplicity, we assume if we found IMDB, we might need a different lookup, 
+                    // BUT for now let's assume TMDB link is key. 
+                    // If your Jellyfin ONLY has IMDB links, let me know. 
+                    // I'll keep it strictly TMDB for now to avoid ID confusion, as most Jellfin metadata fetches TMDB.
                 }
             }
         }
     }
 
     // 5. Trigger Fetch if valid ID found
-    if (id) {
+    if (id && /^\d+$/.test(id)) { // Ensure it's numeric (TMDB ID)
         if (container.dataset.tmdbId !== id) {
             container.dataset.tmdbId = id;
             container.dataset.type = type;
-            fetchRatings(container, id, type, apiMode); // Pass correct API mode
+            fetchRatings(container, id, type);
         }
     }
 }
@@ -798,163 +789,6 @@ function initMenu() {
             panel.style.display = 'none';
         }
     });
-}
-
-function renderMenuContent(panel) {
-    const row = (label, input) => `<div class="mdbl-row"><span>${label}</span>${input}</div>`;
-    
-    const sliderRow = (label, idRange, idNum, min, max, val) => `
-    <div class="mdbl-slider-row">
-        <span>${label}</span>
-        <div class="slider-wrapper">
-            <input type="range" id="${idRange}" min="${min}" max="${max}" value="${val}">
-            <input type="number" id="${idNum}" value="${val}" class="mdbl-pos-input">
-        </div>
-    </div>
-    `;
-    
-    let html = `
-    <header>
-      <h3>Settings</h3>
-      <button id="mdbl-close">✕</button>
-    </header>
-    <div class="mdbl-section" id="mdbl-sec-keys">
-       ${(!INJ_KEYS.MDBLIST && !JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST) ? `<div id="mdbl-key-box" class="mdbl-source"><input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value="${(JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST)||''}"></div>` : ''}
-    </div>
-    <div class="mdbl-section">
-       <div class="mdbl-subtle">Sources (drag to reorder)</div>
-       <div id="mdbl-sources"></div>
-       <hr>
-    </div>
-    <div class="mdbl-section" id="mdbl-sec-display">
-        <div class="mdbl-subtle">Display</div>
-        ${row('Color numbers', `<input type="checkbox" id="d_cnum" ${CFG.display.colorNumbers?'checked':''}>`)}
-        ${row('Color icons', `<input type="checkbox" id="d_cicon" ${CFG.display.colorIcons?'checked':''}>`)}
-        ${row('Show %', `<input type="checkbox" id="d_pct" ${CFG.display.showPercentSymbol?'checked':''}>`)}
-        ${row('Enable 24h format', `<input type="checkbox" id="d_24h" ${CFG.display.endsAt24h?'checked':''}>`)}
-        
-        ${sliderRow('Position X (px)', 'd_x_rng', 'd_x_num', -700, 500, CFG.display.posX)}
-        ${sliderRow('Position Y (px)', 'd_y_rng', 'd_y_num', -500, 500, CFG.display.posY)}
-
-        <hr>
-        
-        <div class="mdbl-subtle">Color bands &amp; palette</div>
-        <div class="mdbl-grid">
-            ${createColorBandRow('th_red', 'Rating', CFG.display.colorBands.redMax, 'red')}
-            ${createColorBandRow('th_orange', 'Rating', CFG.display.colorBands.orangeMax, 'orange')}
-            ${createColorBandRow('th_yg', 'Rating', CFG.display.colorBands.ygMax, 'yg')}
-            <div class="grid-row">
-                <label id="label_top_tier">Top tier (≥ ${CFG.display.colorBands.ygMax+1}%)</label>
-                <div class="grid-right">
-                    <span class="sw" id="sw_mg" style="background:${SWATCHES.mg[CFG.display.colorChoice.mg]}"></span>
-                    <select id="col_mg" class="mdbl-select">${PALETTE_NAMES.mg.map((n,i)=>`<option value="${i}" ${CFG.display.colorChoice.mg===i?'selected':''}>${n}</option>`).join('')}</select>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="mdbl-actions" style="padding-bottom:16px">
-      <button id="mdbl-btn-reset">Reset</button>
-      <button id="mdbl-btn-save" class="primary">Save & Apply</button>
-    </div>
-    `;
-    
-    panel.innerHTML = html;
-    
-    const sList = panel.querySelector('#mdbl-sources');
-    Object.keys(CFG.priorities).sort((a,b) => CFG.priorities[a]-CFG.priorities[b]).forEach(k => {
-         if (!CFG.sources.hasOwnProperty(k)) return;
-         const div = document.createElement('div');
-         div.className = 'mdbl-source mdbl-src-row';
-         div.draggable = true;
-         div.dataset.key = k;
-         div.innerHTML = `
-            <div class="mdbl-src-left">
-                <span class="mdbl-drag-handle">⋮⋮</span>
-                <img src="${LOGO[k]||''}" style="height:16px">
-                <span class="name" style="font-size:13px;margin-left:8px">${LABEL[k]}</span>
-            </div>
-            <input type="checkbox" class="src-check" ${CFG.sources[k]?'checked':''}>
-         `;
-         sList.appendChild(div);
-    });
-
-    panel.querySelector('#mdbl-close').onclick = () => panel.style.display = 'none';
-    
-    const updateLiveAll = () => {
-        CFG.display.colorNumbers = panel.querySelector('#d_cnum').checked;
-        CFG.display.colorIcons = panel.querySelector('#d_cicon').checked;
-        CFG.display.showPercentSymbol = panel.querySelector('#d_pct').checked;
-        CFG.display.endsAt24h = panel.querySelector('#d_24h').checked; 
-        
-        CFG.display.colorBands.redMax = parseInt(panel.querySelector('#th_red').value)||50;
-        CFG.display.colorBands.orangeMax = parseInt(panel.querySelector('#th_orange').value)||69;
-        CFG.display.colorBands.ygMax = parseInt(panel.querySelector('#th_yg').value)||79;
-        
-        ['red','orange','yg','mg'].forEach(k => CFG.display.colorChoice[k] = parseInt(panel.querySelector(`#col_${k}`).value)||0);
-        
-        panel.querySelector('#label_top_tier').textContent = `Top tier (≥ ${CFG.display.colorBands.ygMax+1}%)`;
-        ['red','orange','yg','mg'].forEach(k => panel.querySelector(`#sw_${k}`).style.background = SWATCHES[k][CFG.display.colorChoice[k]]);
-        
-        refreshDomElements();
-    };
-    panel.querySelectorAll('input, select').forEach(el => {
-        if(el.type === 'range' || el.type === 'text' || el.type === 'number') el.addEventListener('input', updateLiveAll);
-        else el.addEventListener('change', updateLiveAll);
-    });
-
-    const updatePos = (axis, val) => {
-        CFG.display[axis] = parseInt(val);
-        panel.querySelector(`#d_${axis === 'posX' ? 'x' : 'y'}_rng`).value = val;
-        panel.querySelector(`#d_${axis === 'posX' ? 'x' : 'y'}_num`).value = val;
-        updateGlobalStyles();
-    };
-    const bindPos = (id, fn) => panel.querySelector(id).addEventListener('input', fn);
-    bindPos('#d_x_rng', (e) => updatePos('posX', e.target.value));
-    bindPos('#d_x_num', (e) => updatePos('posX', e.target.value));
-    bindPos('#d_y_rng', (e) => updatePos('posY', e.target.value));
-    bindPos('#d_y_num', (e) => updatePos('posY', e.target.value));
-    
-    panel.querySelectorAll('.src-check').forEach(cb => {
-        cb.addEventListener('change', (e) => {
-            CFG.sources[e.target.closest('.mdbl-source').dataset.key] = e.target.checked;
-            updateGlobalStyles();
-        });
-    });
-
-    let dragSrc = null;
-    panel.querySelectorAll('.mdbl-src-row').forEach(row => {
-        row.addEventListener('dragstart', e => { dragSrc = row; e.dataTransfer.effectAllowed = 'move'; });
-        row.addEventListener('dragover', e => { 
-            e.preventDefault(); 
-            if (dragSrc && dragSrc !== row) {
-                const list = row.parentNode;
-                const all = [...list.children];
-                const srcI = all.indexOf(dragSrc);
-                const tgtI = all.indexOf(row);
-                if (srcI < tgtI) list.insertBefore(dragSrc, row.nextSibling);
-                else list.insertBefore(dragSrc, row);
-                
-                [...list.querySelectorAll('.mdbl-src-row')].forEach((r, i) => CFG.priorities[r.dataset.key] = i+1);
-                updateGlobalStyles();
-            }
-        });
-    });
-
-    panel.querySelector('#mdbl-btn-save').onclick = () => {
-        saveConfig();
-        const ki = panel.querySelector('#mdbl-key-mdb');
-        if(ki && ki.value.trim()) localStorage.setItem('mdbl_keys', JSON.stringify({MDBLIST: ki.value.trim()}));
-        location.reload();
-    };
-    panel.querySelector('#mdbl-btn-reset').onclick = () => {
-        if(confirm('Reset all settings?')) { localStorage.removeItem('mdbl_prefs'); location.reload(); }
-    };
-    
-    const getInjectorKey = () => { try { return (window.MDBL_KEYS && window.MDBL_KEYS.MDBLIST) ? String(window.MDBL_KEYS.MDBLIST) : ''; } catch { return ''; } };
-    if (getInjectorKey()) {
-       const kw = panel.querySelector('#mdbl-sec-keys');
-       if(kw) { kw.innerHTML = ''; kw.style.display = 'none'; }
-    }
 }
 
 function createColorBandRow(id, lbl, val, key) {
