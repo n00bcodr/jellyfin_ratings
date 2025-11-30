@@ -1,19 +1,22 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.34 — Robust UI)
+// @name         Jellyfin Ratings (v10.1.35 — The Inspector)
 // @namespace    https://mdblist.com
-// @version      10.1.34
-// @description  Master Rating links to Wikipedia. Gear icon first. Fixes disappearing text bug. Logs API response to console.
+// @version      10.1.35
+// @description  Master Rating links to Wikipedia. Gear icon first. Robust Error Logging to find "Parse Err" cause.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.34 loading...');
+console.log('[Jellyfin Ratings] v10.1.35 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
 ========================================================================== */
 
 const NS = 'mdbl_';
+// DEFAULT KEY - If this is overused, you might get errors.
+const DEFAULT_KEY = 'hehfnbo9y8blfyqm1d37ikubl'; 
+
 const DEFAULTS = {
     sources: {
         master: true, imdb: true, tmdb: true, trakt: true, letterboxd: true,
@@ -79,6 +82,11 @@ const LABEL = {
 let CFG = loadConfig();
 let currentImdbId = null;
 
+// GET KEY SAFELY
+const INJ_KEYS = (window.MDBL_KEYS || {});
+const LS_KEYS = JSON.parse(localStorage.getItem(`${NS}keys`) || '{}');
+const API_KEY = String(INJ_KEYS.MDBLIST || LS_KEYS.MDBLIST || DEFAULT_KEY);
+
 function loadConfig() {
     try {
         const raw = localStorage.getItem(`${NS}prefs`);
@@ -104,9 +112,6 @@ function saveConfig() {
     try { localStorage.setItem(`${NS}prefs`, JSON.stringify(CFG)); } catch (e) {}
 }
 
-const INJ_KEYS = (window.MDBL_KEYS || {});
-const LS_KEYS = JSON.parse(localStorage.getItem(`${NS}keys`) || '{}');
-const API_KEY = String(INJ_KEYS.MDBLIST || LS_KEYS.MDBLIST || 'hehfnbo9y8blfyqm1d37ikubl');
 
 /* ==========================================================================
    2. UTILITIES & STYLES
@@ -323,7 +328,6 @@ function createRatingHtml(key, val, link, count, title, kind) {
 }
 
 function renderGearIcon(container, statusText = '') {
-    // Ensure we don't duplicate button
     if (!container.querySelector('.mdbl-settings-btn')) {
         const btn = document.createElement('div');
         btn.className = 'mdbl-rating-item mdbl-settings-btn';
@@ -333,7 +337,6 @@ function renderGearIcon(container, statusText = '') {
         container.appendChild(btn);
     }
     
-    // Ensure we don't duplicate status
     let st = container.querySelector('.mdbl-status-text');
     if (!st) {
         st = document.createElement('span');
@@ -346,12 +349,9 @@ function renderGearIcon(container, statusText = '') {
 }
 
 function updateStatus(container, text, color = '#ffeb3b') {
-    // FIX: Recreate button AND span if innerHTML was wiped
     if (!container.querySelector('.mdbl-settings-btn')) {
-        renderGearIcon(container, text); // Recreates structure
+        renderGearIcon(container, text);
     }
-    
-    // Safety check again
     const st = container.querySelector('.mdbl-status-text');
     if(st) { 
         st.textContent = text; 
@@ -360,19 +360,21 @@ function updateStatus(container, text, color = '#ffeb3b') {
 }
 
 function renderRatings(container, data, pageImdbId, type) {
-    console.log('[MDBList] API Response:', data); // DEBUG
+    // DEBUG
+    console.log('[MDBList] Data received:', data);
 
-    // 1. Wipe content but ensure structure
+    const btn = container.querySelector('.mdbl-settings-btn');
     container.innerHTML = ''; 
-    // Recreate base structure
-    renderGearIcon(container, '');
+    
+    if(btn) {
+        container.appendChild(btn);
+        btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
+    } else renderGearIcon(container, '');
 
-    // 2. Add Ratings
     let html = '';
     const add = (k, v, lnk, cnt, tit, kind) => html += createRatingHtml(k, v, lnk, cnt, tit, kind);
     const ids = { imdb: data.imdbid || data.imdb_id || pageImdbId, tmdb: data.id || data.tmdbid || data.tmdb_id, trakt: data.traktid || data.trakt_id, slug: data.slug || data.ids?.slug };
     const fallbackSlug = localSlug(data.title || '');
-    const metaType = type === 'show' ? 'tv' : 'movie';
     let masterSum = 0, masterCount = 0;
     const trackMaster = (val, scaleKey) => { if (val !== null && !isNaN(parseFloat(val))) { masterSum += parseFloat(val) * (SCALE[scaleKey] || 1); masterCount++; } };
 
@@ -389,7 +391,7 @@ function renderRatings(container, data, pageImdbId, type) {
                 else { add('rotten_tomatoes_critic', v, fixUrl(apiLink, 'rottentomatoes.com'), c, 'RT Critic', 'Reviews'); trackMaster(v, 'rotten_tomatoes_critic'); }
             }
             else if (s.includes('metacritic')) {
-                const lnk = fallbackSlug ? `https://www.metacritic.com/${metaType}/${fallbackSlug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(data.title||'')}/results`;
+                const lnk = fallbackSlug ? `https://www.metacritic.com/${type === 'show' ? 'tv' : 'movie'}/${fallbackSlug}` : `https://www.metacritic.com/search/all/${encodeURIComponent(data.title||'')}/results`;
                 if(s.includes('user')) { add('metacritic_user', v, lnk, c, 'User', 'Ratings'); trackMaster(v, 'metacritic_user'); }
                 else { add('metacritic_critic', v, lnk, c, 'Metacritic', 'Reviews'); trackMaster(v, 'metacritic_critic'); }
             }
@@ -408,14 +410,13 @@ function renderRatings(container, data, pageImdbId, type) {
         contentDiv.innerHTML = html;
         while (contentDiv.firstChild) container.appendChild(contentDiv.firstChild);
         
-        // Remove status text if we have ratings
+        // Clear status since we have content
         const st = container.querySelector('.mdbl-status-text');
         if(st) st.remove();
-
+        
         refreshDomElements();
     } else {
-        // EXPLICITLY SHOW STATUS if empty
-        updateStatus(container, 'MDB: 0 Ratings', '#e53935');
+        updateStatus(container, 'API: No Ratings Found', '#e53935');
     }
 }
 
@@ -439,17 +440,31 @@ function fetchRatings(container, id, type, apiMode) {
         method: 'GET', url: apiUrl,
         onload: r => {
             container.dataset.fetching = 'false';
+            console.log('[MDBList] RAW:', r.responseText); // DEBUG
+            
             if (r.status !== 200) { 
                 console.error('[MDBList] API Error:', r.status);
                 updateStatus(container, `API ${r.status}`, '#e53935');
                 return;
             }
+            
+            // CHECK FOR EMPTY BODY
+            if (!r.responseText || r.responseText.trim() === '') {
+                updateStatus(container, 'API Empty', '#e53935');
+                return;
+            }
+
             try {
                 const d = JSON.parse(r.responseText);
-                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: d }));
-                renderRatings(container, d, currentImdbId, type);
+                // Check if valid response format
+                if (d && (d.ratings || d.title)) {
+                    localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: d }));
+                    renderRatings(container, d, currentImdbId, type);
+                } else {
+                    updateStatus(container, 'API Bad Data', '#e53935');
+                }
             } catch(e) { 
-                console.error('[MDBList] Parse Error', e); 
+                console.error('[MDBList] Parse Error:', e); 
                 updateStatus(container, 'Parse Err', '#e53935');
             }
         },
@@ -466,8 +481,6 @@ function getJellyfinId() {
     const params = new URLSearchParams(url.includes('?') ? url.split('?')[1] : url);
     return params.get('id');
 }
-
-// === ROBUST ID HUNTER (DOM ONLY - RESTORED v10.1.23 LOGIC) ===
 
 function scan() {
     updateEndsAt();
@@ -486,7 +499,6 @@ function scan() {
         renderGearIcon(container, 'Scanning...');
         container.dataset.retries = 0; 
     } else if (container.dataset.jellyfinId !== currentJellyfinId) {
-        // Reset Logic on Navigation
         container.innerHTML = '';
         renderGearIcon(container, 'Scanning...');
         container.dataset.jellyfinId = currentJellyfinId;
@@ -498,14 +510,11 @@ function scan() {
 
     if (container.dataset.fetched === 'true') return;
 
-    // Retry Logic
     let retries = parseInt(container.dataset.retries || '0');
-    // Keep trying for 50 cycles (25 seconds) to catch delayed Jellyfin rendering
     if (retries > 50) {
         const st = container.querySelector('.mdbl-status-text');
-        // Only show "No ID" if it hasn't been fetched yet
-        if (st && container.dataset.fetched !== 'true' && !st.textContent.includes('0 Ratings')) {
-             updateStatus(container, 'No ID found', '#e53935');
+        if (st && container.dataset.fetched !== 'true' && !st.textContent.includes('Ratings')) {
+             updateStatus(container, 'No ID', '#e53935');
         }
         return;
     }
@@ -513,7 +522,7 @@ function scan() {
 
     let type = 'movie', id = null, mode = 'tmdb';
     
-    // v10.1.23 STYLE DOM SCAN (All links)
+    // TMDB
     for (let i = 0; i < document.links.length; i++) {
         const href = document.links[i].href;
         if (href.includes('themoviedb.org')) {
@@ -521,7 +530,7 @@ function scan() {
             if (m) { type = m[1] === 'tv' ? 'show' : 'movie'; id = m[2]; mode = 'tmdb'; break; }
         }
     }
-    // IMDb Fallback
+    // IMDb
     if (!id) {
         for (let i = 0; i < document.links.length; i++) {
             const href = document.links[i].href;
