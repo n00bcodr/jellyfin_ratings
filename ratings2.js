@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.3.0 — Master First & Parental Fix)
+// @name         Jellyfin Ratings (v10.3.1 — Gear First & Spacing Fix)
 // @namespace    https://mdblist.com
-// @version      10.3.0
-// @description  Master Rating -> Gear -> Others. Parental Rating restored with correct spacing.
+// @version      10.3.1
+// @description  Gear -> Master -> Others. Menu click fixed. Parental rating spacing fixed.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.3.0 loading...');
+console.log('[Jellyfin Ratings] v10.3.1 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -90,7 +90,6 @@ function loadConfig() {
         const raw = localStorage.getItem(`${NS}prefs`);
         if (!raw) return JSON.parse(JSON.stringify(DEFAULTS));
         const p = JSON.parse(raw);
-        // Force clamp limits: X(-700, 500), Y(-500, 500)
         if(p.display) {
             p.display.posX = Math.max(-700, Math.min(500, parseInt(p.display.posX) || 0));
             p.display.posY = Math.max(-500, Math.min(500, parseInt(p.display.posY) || 0));
@@ -106,7 +105,6 @@ function loadConfig() {
 
 function saveConfig() { localStorage.setItem(`${NS}prefs`, JSON.stringify(CFG)); }
 
-// Polyfill GM_xmlhttpRequest if needed
 if (typeof GM_xmlhttpRequest === 'undefined') {
     const PROXIES = ['https://api.allorigins.win/raw?url=', 'https://api.codetabs.com/v1/proxy?quest='];
     window.GM_xmlhttpRequest = ({ method = 'GET', url, onload, onerror }) => {
@@ -139,8 +137,10 @@ const CSS_MAIN = `
     .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
     
     .mdbl-settings-btn {
-        opacity: 0.6; margin: 0 8px; border-right: 1px solid rgba(255,255,255,0.2); border-left: 1px solid rgba(255,255,255,0.2);
-        padding: 4px 8px; cursor: pointer !important; pointer-events: auto !important;
+        opacity: 0.6; margin-right: 8px; border-right: 1px solid rgba(255,255,255,0.2);
+        padding: 4px 8px 4px 0; cursor: pointer !important; pointer-events: auto !important;
+        /* Order is enforced in JS now, but we keep this as backup */
+        order: -9999 !important; 
     }
     .mdbl-settings-btn:hover { opacity: 1; transform: scale(1.1); }
     .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; pointer-events: none; }
@@ -149,19 +149,21 @@ const CSS_MAIN = `
         overflow: visible !important; contain: none !important; position: relative; z-index: 10; 
     }
     
-    /* Spacing & Parental Rating Fixes */
+    /* Spacing Fixes */
     #customEndsAt { 
         font-size: inherit; opacity: 0.9; cursor: default; 
-        margin-left: 10px !important; display: inline-block; vertical-align: baseline;
+        margin-left: 0 !important; display: inline-block; vertical-align: baseline;
         pointer-events: auto; position: relative; z-index: 9999; padding: 2px 4px;
     }
+    
+    /* Parental Rating Styling */
     .mediaInfoOfficialRating { 
-        margin-right: 0 !important; /* Reset native margin */
-        display: inline-block !important; /* Ensure visible */
+        margin-right: 14px !important; /* Matches Jellyfin standard spacing */
+        display: inline-block !important; 
         opacity: 1 !important;
     }
 
-    /* Hide Native Star/Tomato Ratings */
+    /* Hide Default Jellyfin Ratings */
     .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating {
         display: none !important;
     }
@@ -277,7 +279,7 @@ function refreshDomElements() {
    4. CORE LOGIC
 ========================================================================== */
 
-// Define global function immediately
+// Define global function immediately for inline onclicks
 window.MDBL_OPEN_SETTINGS_GL = () => { initMenu(); if(window.MDBL_OPEN_SETTINGS) window.MDBL_OPEN_SETTINGS(); };
 
 function parseRuntimeToMinutes(text) {
@@ -306,7 +308,6 @@ function updateEndsAt() {
         }
     }
     
-    // Manage existing "Ends at" text visibility
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
         if (el.id === 'customEndsAt' || el.closest('.mdblist-rating-container')) return;
         const t = (el.textContent || '').toLowerCase();
@@ -348,26 +349,27 @@ function createRatingHtml(key, val, link, count, title) {
 
 function renderRatings(container, data, pageImdbId, type) {
     let html = '';
+    
+    // 1. GEAR ICON (Very First Item)
+    html += `<div class="mdbl-rating-item mdbl-settings-btn" title="Settings" onclick="window.MDBL_OPEN_SETTINGS_GL()">
+       <svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg></div>`;
+
     const ids = { imdb: data.imdbid||data.imdb_id||pageImdbId, tmdb: data.id||data.tmdbid||container.dataset.tmdbId, trakt: data.traktid };
     let mSum = 0, mCount = 0;
 
-    // 1. MASTER RATING (First)
-    // We calculate master rating first, then prepend it to HTML
+    // 2. MASTER RATING (Second)
     data.ratings?.forEach(r => {
-        const k = mapSourceKey(r.source);
+        const s = (r.source||'').toLowerCase();
+        let k = '';
+        if (s.includes('imdb')) k='imdb'; else if (s.includes('tmdb')) k='tmdb'; else if (s.includes('trakt')) k='trakt'; else if (s.includes('letterboxd')) k='letterboxd'; else if (s.includes('tomatoes') || s === 'tomatoes') k='rotten_tomatoes_critic'; else if (s.includes('audience') || s.includes('popcorn')) k='rotten_tomatoes_audience'; else if (s.includes('metacritic') && !s.includes('user')) k='metacritic_critic'; else if (s.includes('metacritic') && s.includes('user')) k='metacritic_user'; else if (s.includes('roger')) k='roger_ebert'; else if (s.includes('anilist')) k='anilist'; else if (s.includes('myanimelist')) k='myanimelist';
+        
         if (k && r.value) { mSum += parseFloat(r.value) * (SCALE[k]||1); mCount++; }
     });
 
     if (mCount > 0) {
-        const average = mSum / mCount;
         const wiki = `https://duckduckgo.com/?q=!ducky+site:en.wikipedia.org+${encodeURIComponent(data.title||'')} ${data.year||''} ${type==='movie'?'film':'TV series'}`;
-        html += createRatingHtml('master', average, wiki, mCount, 'Master Rating');
+        html += createRatingHtml('master', mSum/mCount, wiki, mCount, 'Master Rating');
     }
-
-    // 2. GEAR ICON (Second)
-    // Inline click forced, plus global listener
-    html += `<div class="mdbl-rating-item mdbl-settings-btn" title="Settings" onclick="window.MDBL_OPEN_SETTINGS_GL()">
-       <svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg></div>`;
 
     // 3. OTHER RATINGS (Following)
     data.ratings?.forEach(r => {
@@ -391,22 +393,6 @@ function renderRatings(container, data, pageImdbId, type) {
 
     container.innerHTML = html;
     refreshDomElements();
-}
-
-function mapSourceKey(source) {
-    const s = (source||'').toLowerCase();
-    if (s.includes('imdb')) return 'imdb';
-    if (s.includes('tmdb')) return 'tmdb';
-    if (s.includes('trakt')) return 'trakt';
-    if (s.includes('letterboxd')) return 'letterboxd';
-    if (s.includes('tomatoes') || s === 'tomatoes') return 'rotten_tomatoes_critic';
-    if (s.includes('audience') || s.includes('popcorn')) return 'rotten_tomatoes_audience';
-    if (s.includes('metacritic') && !s.includes('user')) return 'metacritic_critic';
-    if (s.includes('metacritic') && s.includes('user')) return 'metacritic_user';
-    if (s.includes('roger')) return 'roger_ebert';
-    if (s.includes('anilist')) return 'anilist';
-    if (s.includes('myanimelist')) return 'myanimelist';
-    return null;
 }
 
 // Global Event Listener for Menu
