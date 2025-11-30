@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.11 — Clean UI & Ranges)
+// @name         Jellyfin Ratings (v10.1.12 — Fix & Restore)
 // @namespace    https://mdblist.com
-// @version      10.1.11
+// @version      10.1.12
 // @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings but keeps Parental Rating.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.11 loading...');
+console.log('[Jellyfin Ratings] v10.1.12 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -103,12 +103,11 @@ function loadConfig() {
             p.display.posX = 0; p.display.posY = 0;
         }
 
-        // --- FORCE CLAMP VALUES (Updated Ranges) ---
+        // --- FORCE CLAMP VALUES ---
         if (p.display.posX > 500) p.display.posX = 500;
-        if (p.display.posX < -700) p.display.posX = -700; // X Min -700
+        if (p.display.posX < -700) p.display.posX = -700;
         if (p.display.posY > 500) p.display.posY = 500;
-        if (p.display.posY < -500) p.display.posY = -500; // Y Min -500
-        // ----------------------------------
+        if (p.display.posY < -500) p.display.posY = -500;
 
         return {
             sources: { ...DEFAULTS.sources, ...p.sources },
@@ -176,12 +175,12 @@ function updateGlobalStyles() {
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; transition: filter 0.2s; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
         
-        /* Settings Button - FORCE ORDER FIRST */
+        /* Settings Button - Forces gear icon to always be first via CSS + Inline fallback */
         .mdbl-settings-btn {
             opacity: 0.6; margin-right: 8px; border-right: 1px solid rgba(255,255,255,0.2); 
-            padding: 4px 8px 4px 0; /* Add padding right */
+            padding: 4px 8px 4px 0;
             cursor: pointer !important; pointer-events: auto !important;
-            order: -9999 !important; /* Forces gear icon to always be first */
+            order: -9999 !important; 
         }
         .mdbl-settings-btn:hover { opacity: 1; transform: scale(1.1); }
         .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; pointer-events: none; }
@@ -205,7 +204,6 @@ function updateGlobalStyles() {
 
         /* --- AGGRESSIVE HIDING OF DEFAULT RATINGS (EXCEPT Parental) --- */
         .starRatingContainer, 
-        /* .mediaInfoOfficialRating, <--- Removed this to show Parental Rating */
         .mediaInfoCriticRating, 
         .mediaInfoAudienceRating,
         .starRating {
@@ -317,9 +315,13 @@ function updateEndsAt() {
         }
     }
     
-    // Hide original "Ends at" text if found
+    // Hide original "Ends at" text if found (BUT PROTECT OUR CONTAINER AND PARENTAL RATING)
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
-        if (el.id === 'customEndsAt' || el.closest('.mdblist-rating-container') || el.classList.contains('mediaInfoOfficialRating')) return;
+        // Safety checks: Don't hide our custom element, don't hide the rating container, don't hide parental rating
+        if (el.id === 'customEndsAt') return;
+        if (el.classList.contains('mdblist-rating-container') || el.closest('.mdblist-rating-container')) return;
+        if (el.classList.contains('mediaInfoOfficialRating')) return;
+        
         const t = (el.textContent || '').toLowerCase();
         if (t.includes('ends at') || t.includes('endet um') || t.includes('endet am')) {
              if (minutes > 0) el.style.display = 'none';
@@ -327,7 +329,7 @@ function updateEndsAt() {
         }
     });
 
-    // Also JS Hide defaults just in case CSS misses them
+    // Also JS Hide defaults just in case CSS misses them (EXCEPT Parental Rating)
     document.querySelectorAll('.starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating').forEach(el => el.style.display = 'none');
 
     if (minutes > 0) {
@@ -371,9 +373,9 @@ function createRatingHtml(key, val, link, count, title, kind) {
 }
 
 function renderRatings(container, data, pageImdbId, type) {
-    // 1. START WITH SETTINGS BUTTON (First item)
+    // 1. START WITH SETTINGS BUTTON (Added inline style order:-9999 to guarantee it is first)
     let html = `
-    <div class="mdbl-rating-item mdbl-settings-btn" title="Settings" onclick="event.preventDefault(); event.stopPropagation(); window.MDBL_OPEN_SETTINGS_GL();">
+    <div class="mdbl-rating-item mdbl-settings-btn" title="Settings" style="order: -9999 !important;" onclick="event.preventDefault(); event.stopPropagation(); window.MDBL_OPEN_SETTINGS_GL();">
        <svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
     </div>
     `;
@@ -492,11 +494,13 @@ function fetchRatings(container, tmdbId, type) {
         url: `https://api.mdblist.com/tmdb/${type}/${tmdbId}?apikey=${API_KEY}`,
         onload: r => {
             try {
+                if (r.status !== 200) { console.error('[MDBList] API Error:', r.status); return; }
                 const d = JSON.parse(r.responseText);
                 localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: d }));
                 renderRatings(container, d, currentImdbId, type);
-            } catch(e) {}
-        }
+            } catch(e) { console.error('[MDBList] Parse Error', e); }
+        },
+        onerror: e => console.error('[MDBList] Net Error', e)
     });
 }
 
@@ -566,10 +570,6 @@ function getJellyfinColor() {
 function initMenu() {
     if(document.getElementById('mdbl-panel')) return;
 
-    // Changes: 
-    // - New CSS class .mdbl-slider-row
-    // - Flexbox layout specifically for sliders
-    // - Removed compact toggle logic
     const css = `
     :root { --mdbl-right-col: 48px; }
     #mdbl-panel { position:fixed; right:16px; bottom:70px; width:500px; max-height:90vh; overflow:auto; border-radius:14px;
@@ -589,7 +589,6 @@ function initMenu() {
     #mdbl-panel .mdbl-row, #mdbl-panel .mdbl-source { display:grid; grid-template-columns:1fr var(--mdbl-right-col); align-items:center; gap:5px; padding:2px 6px; border-radius:6px; min-height: 32px; }
     #mdbl-panel .mdbl-row { background:transparent; border:1px solid rgba(255,255,255,0.06); box-sizing:border-box; }
     
-    /* === NEW SLIDER LAYOUT CLASS === */
     .mdbl-slider-row {
         display: flex;
         align-items: center;
@@ -611,14 +610,13 @@ function initMenu() {
         width: 100%;
     }
     
-    /* Theme Sync */
     #mdbl-panel input[type="checkbox"] { 
         transform: scale(1.2); cursor: pointer; 
         accent-color: var(--mdbl-theme); 
     }
     #mdbl-panel input[type="range"] { 
-        flex-grow: 1; /* Force stretch */
-        width: 100%;  /* Ensure it fills flex container */
+        flex-grow: 1; 
+        width: 100%;
         margin: 0; cursor: pointer; accent-color: var(--mdbl-theme); 
     }
     
@@ -635,7 +633,6 @@ function initMenu() {
     #mdbl-panel .mdbl-actions { position:sticky; bottom:0; background:rgba(22,22,26,0.96); display:flex; gap:10px; padding:6px 10px; border-top:1px solid rgba(255,255,255,0.08); }
     #mdbl-panel button { padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:#1b1c20; color:#eaeaea; cursor:pointer; }
     
-    /* Force Theme Color */
     #mdbl-panel button.primary { 
         background-color: var(--mdbl-theme) !important; 
         border-color: var(--mdbl-theme) !important; 
@@ -702,7 +699,6 @@ function initMenu() {
     });
     document.addEventListener('mouseup', () => isDrag = false);
     
-    // Fix: Close on click outside
     document.addEventListener('mousedown', (e) => {
         if (panel.style.display === 'block' && !panel.contains(e.target) && e.target.id !== 'customEndsAt' && !e.target.closest('.mdbl-settings-btn')) {
             panel.style.display = 'none';
@@ -715,7 +711,6 @@ initMenu();
 function renderMenuContent(panel) {
     const row = (label, input) => `<div class="mdbl-row"><span>${label}</span>${input}</div>`;
     
-    // NEW: Function specifically for the Wide Slider Rows
     const sliderRow = (label, idRange, idNum, min, max, val) => `
     <div class="mdbl-slider-row">
         <span>${label}</span>
