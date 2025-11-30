@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.14 — MutationObserver Fix)
+// @name         Jellyfin Ratings (v10.1.15 — Hybrid Burst)
 // @namespace    https://mdblist.com
-// @version      10.1.14
-// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings but keeps Parental Rating. Instant loading via MutationObserver.
+// @version      10.1.15
+// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings but keeps Parental Rating. Hybrid Engine (Observer + Burst).
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.14 loading...');
+console.log('[Jellyfin Ratings] v10.1.15 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -101,12 +101,10 @@ function loadConfig() {
         if (p.display && (isNaN(parseInt(p.display.posX)) || isNaN(parseInt(p.display.posY)))) {
             p.display.posX = 0; p.display.posY = 0;
         }
-
         if (p.display.posX > 500) p.display.posX = 500;
         if (p.display.posX < -700) p.display.posX = -700;
         if (p.display.posY > 500) p.display.posY = 500;
         if (p.display.posY < -500) p.display.posY = -500;
-
         return {
             sources: { ...DEFAULTS.sources, ...p.sources },
             display: { ...DEFAULTS.display, ...p.display, colorBands: { ...DEFAULTS.display.colorBands, ...p.display?.colorBands }, colorChoice: { ...DEFAULTS.display.colorChoice, ...p.display?.colorChoice } },
@@ -173,7 +171,7 @@ function updateGlobalStyles() {
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; transition: filter 0.2s; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; transition: color 0.2s; }
         
-        /* Settings Button - Forces gear icon to always be first via CSS + Inline fallback */
+        /* Settings Button */
         .mdbl-settings-btn {
             opacity: 0.6; margin-right: 8px; border-right: 1px solid rgba(255,255,255,0.2); 
             padding: 4px 8px 4px 0;
@@ -498,17 +496,43 @@ function fetchRatings(container, tmdbId, type) {
     });
 }
 
-// === NEW: MUTATION OBSERVER LOGIC ===
+// === HYBRID ENGINE: OBSERVER + BURST NAVIGATION ===
+
+// 1. Mutation Observer (Instant updates)
 let debounceTimer = null;
-function handleMutations(mutations) {
+const observer = new MutationObserver(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
+    debounceTimer = setTimeout(() => scan(), 50);
+});
+observer.observe(document.body, { childList: true, subtree: true });
+
+// 2. Navigation Burst Logic (Aggressive reload on URL change)
+let lastPath = window.location.pathname;
+let burstInterval = null;
+
+function burstScan() {
+    scan();
+    if(burstInterval) clearInterval(burstInterval);
+    let count = 0;
+    // Scan every 100ms for 3 seconds (30 checks)
+    burstInterval = setInterval(() => {
         scan();
-    }, 50); // Fast debounce
+        count++;
+        if(count > 30) clearInterval(burstInterval);
+    }, 100);
 }
 
-const observer = new MutationObserver(handleMutations);
-observer.observe(document.body, { childList: true, subtree: true });
+// 3. Heartbeat (Fail-safe, checks periodically)
+setInterval(() => {
+    // Check if URL changed manually (SPA router detection)
+    if (window.location.pathname !== lastPath) {
+        lastPath = window.location.pathname;
+        currentImdbId = null;
+        document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
+        burstScan(); // Trigger Burst
+    }
+    scan(); // Regular Heartbeat scan
+}, 2000);
 
 function scan() {
     updateEndsAt();
