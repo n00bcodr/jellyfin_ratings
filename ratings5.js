@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.16 — The Enforcer)
+// @name         Jellyfin Ratings (v10.1.17 — Stable SPA)
 // @namespace    https://mdblist.com
-// @version      10.1.16
-// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings but keeps Parental Rating. Force-loads ratings on navigation.
+// @version      10.1.17
+// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings but keeps Parental Rating. Debounced Observer for stability.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.16 loading...');
+console.log('[Jellyfin Ratings] v10.1.17 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -294,7 +294,7 @@ function parseRuntimeToMinutes(text) {
 
 function updateEndsAt() {
     const primary = document.querySelector('.itemMiscInfo.itemMiscInfo-primary') || document.querySelector('.itemMiscInfo');
-    if (!primary || !document.body.contains(primary)) return; // Valid check
+    if (!primary || !document.body.contains(primary)) return; 
 
     let minutes = 0;
     const detailContainer = primary.closest('.detailRibbon') || primary.closest('.mainDetailButtons') || primary.parentNode;
@@ -314,7 +314,7 @@ function updateEndsAt() {
     document.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
         if (el.id === 'customEndsAt') return;
         if (el.classList.contains('mdblist-rating-container') || el.closest('.mdblist-rating-container')) return;
-        if (el.classList.contains('mediaInfoOfficialRating')) return; // PROTECT PARENTAL RATING
+        if (el.classList.contains('mediaInfoOfficialRating')) return;
         
         const t = (el.textContent || '').toLowerCase();
         if (t.includes('ends at') || t.includes('endet um') || t.includes('endet am')) {
@@ -496,40 +496,24 @@ function fetchRatings(container, tmdbId, type) {
     });
 }
 
-// === THE ENFORCER: RECURSIVE CHECKER ===
+// === STABLE SPA DETECTOR (No loops) ===
 
-let enforcerInterval = null;
-let lastPath = window.location.pathname;
-
-function startEnforcement() {
-    if(enforcerInterval) clearInterval(enforcerInterval);
-    let checks = 0;
-    // Check every 100ms for 5 seconds
-    enforcerInterval = setInterval(() => {
-        scan();
-        checks++;
-        if(checks > 50) clearInterval(enforcerInterval);
-    }, 100);
-}
-
-// Global Observer to trigger enforcement on DOM changes
+// 1. Debounced Observer (Throttles DOM checks to avoid freezing)
+let debounceTimer = null;
 const observer = new MutationObserver(() => {
-    // If the path changed, reset completely
-    if (window.location.pathname !== lastPath) {
-        lastPath = window.location.pathname;
-        currentImdbId = null;
-        document.querySelectorAll('.mdblist-rating-container').forEach(e => e.remove());
-        startEnforcement();
-    } else {
-        // If path is same but DOM changed, just scan once lightly, 
-        // unless we suspect a full wipe, then trigger enforcement manually.
-        scan();
-    }
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => scan(), 200); // 200ms wait before scanning
 });
 observer.observe(document.body, { childList: true, subtree: true });
 
-// Initial kick
-startEnforcement();
+// 2. Navigation Hook (Listen to history changes directly)
+const originalPushState = history.pushState;
+history.pushState = function() {
+    originalPushState.apply(this, arguments);
+    setTimeout(scan, 200); // Trigger scan on nav
+};
+window.addEventListener('popstate', () => setTimeout(scan, 200));
+
 
 function scan() {
     updateEndsAt();
@@ -546,7 +530,6 @@ function scan() {
             const type = m[1] === 'tv' ? 'show' : 'movie';
             const id = m[2];
             
-            // Only proceed if wrapper exists AND is attached to DOM
             const wrapper = document.querySelector('.itemMiscInfo');
             if (wrapper && document.body.contains(wrapper)) {
                 const existing = wrapper.querySelector('.mdblist-rating-container');
@@ -560,7 +543,6 @@ function scan() {
                     fetchRatings(div, id, type);
                 } 
                 else if (existing.dataset.tmdbId !== id) {
-                    // ID mismatch (navigated from movie A to B fast)
                     existing.remove();
                     const div = document.createElement('div');
                     div.className = 'mdblist-rating-container';
