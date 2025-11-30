@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.49 — Link Logic Final)
+// @name         Jellyfin Ratings (v10.1.50 — Final Link Compilation)
 // @namespace    https://mdblist.com
-// @version      10.1.49
-// @description  Master Rating links to Wikipedia. Gear icon first. Roger Ebert links fixed (force /reviews/). Anti-Ghosting active.
+// @version      10.1.50
+// @description  Master Rating links to Wikipedia. Gear icon first. Fixes Metacritic paths while keeping Roger Ebert working.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.49 loading...');
+console.log('[Jellyfin Ratings] v10.1.50 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -313,12 +313,13 @@ function updateEndsAt() {
     }
 }
 
-// === LINK BUILDER (Fixes for Roger Ebert & Anime) ===
+// === SMART LINK BUILDER ===
 function generateLink(key, ids, apiLink, type, title, year) {
     const sLink = String(apiLink || '');
     const safeTitle = encodeURIComponent(title || '');
     const safeType = (type === 'show' || type === 'tv') ? 'tv' : 'movie';
     
+    // Standard absolute link check
     if (sLink.startsWith('http') && key !== 'metacritic_user' && key !== 'roger_ebert') return sLink;
 
     switch(key) {
@@ -334,9 +335,13 @@ function generateLink(key, ids, apiLink, type, title, year) {
             }
             return ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : '#';
         
+        // --- METACRITIC FIX ---
         case 'metacritic_critic':
         case 'metacritic_user': 
-            if (sLink.startsWith('/')) return `https://www.metacritic.com${sLink}`;
+            if (sLink.startsWith('/movie/') || sLink.startsWith('/tv/')) {
+                return `https://www.metacritic.com${sLink}`;
+            }
+            // Otherwise construct manual
             const slug = localSlug(title);
             return slug ? `https://www.metacritic.com/${safeType}/${slug}` : '#';
 
@@ -349,22 +354,22 @@ function generateLink(key, ids, apiLink, type, title, year) {
         case 'anilist': 
             if (ids.anilist) return `https://anilist.co/anime/${ids.anilist}`;
             if (/^\d+$/.test(sLink)) return `https://anilist.co/anime/${sLink}`;
-            return `https://anilist.co/search/anime?search=${safeTitle}`; // Fallback Search
+            return `https://anilist.co/search/anime?search=${safeTitle}`;
             
         case 'myanimelist': 
             if (ids.mal) return `https://myanimelist.net/anime/${ids.mal}`;
             if (/^\d+$/.test(sLink)) return `https://myanimelist.net/anime/${sLink}`;
-            return `https://myanimelist.net/anime.php?q=${safeTitle}`; // Fallback Search
+            return `https://myanimelist.net/anime.php?q=${safeTitle}`;
             
         case 'roger_ebert':
+             // Force the path from v12
              if (sLink && sLink.length > 2 && sLink !== '#') {
                  if (sLink.startsWith('http')) return sLink;
-                 // FIX: Enforce /reviews/ path for relative links
                  let path = sLink.startsWith('/') ? sLink : `/${sLink}`;
                  if (!path.includes('/reviews/')) path = `/reviews${path}`;
                  return `https://www.rogerebert.com${path}`;
              }
-             // Fallback: Direct Redirect via DuckDuckGo to the review page
+             // Search fallback
              return `https://duckduckgo.com/?q=!ducky+site:rogerebert.com/reviews+${safeTitle}+${year}`;
 
         default:
@@ -460,7 +465,7 @@ function renderRatings(container, data, pageImdbId, type) {
             }
             else if (s.includes('metacritic')) {
                 if(s.includes('user')) { add('metacritic_user', v, apiLink, c, 'User', 'Ratings'); trackMaster(v, 'metacritic_user'); }
-                else { add('metacritic_critic', v, apiLink, c, 'Metacritic', 'Reviews'); trackMaster(v, 'metacritic_critic'); }
+                else { add('metacritic_critic', v, apiLink, c, 'Metascore', 'Reviews'); trackMaster(v, 'metacritic_critic'); }
             }
             else if (s.includes('roger')) { add('roger_ebert', v, apiLink, c, 'Roger Ebert', 'Reviews'); trackMaster(v, 'roger_ebert'); }
             else if (s.includes('anilist')) { add('anilist', v, apiLink, c, 'AniList', 'Votes'); trackMaster(v, 'anilist'); }
