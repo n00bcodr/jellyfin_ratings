@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.28 — Safe Mode)
+// @name         Jellyfin Ratings (v10.1.29 — God Mode)
 // @namespace    https://mdblist.com
-// @version      10.1.28
-// @description  Master Rating links to Wikipedia. Gear icon first. Hides default ratings. Fixes Menu click issues. Reliable timeout for loader.
+// @version      10.1.29
+// @description  Master Rating via MDBList. Gear icon first. Hides default ratings. Uses internal Jellyfin ApiClient for 100% ID accuracy.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.28 loading...');
+console.log('[Jellyfin Ratings] v10.1.29 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -154,21 +154,20 @@ function updateGlobalStyles() {
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; }
         
-        /* Settings Button */
         .mdbl-settings-btn {
             opacity: 0.6; margin-right: 8px; border-right: 1px solid rgba(255,255,255,0.2); 
             padding: 4px 8px 4px 0; cursor: pointer !important; pointer-events: auto !important;
             order: -9999 !important; display: inline-flex;
         }
         .mdbl-settings-btn:hover { opacity: 1; transform: scale(1.1); }
-        .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; pointer-events: none; }
+        .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; }
         
-        /* Dots */
         .mdbl-scan-dot {
             animation: mdbl-blink 1s infinite;
-            font-size: 18px; line-height: 10px; opacity: 0.5; margin-right: 5px; color: #fff;
+            font-size: 18px; line-height: 10px; opacity: 0.8; margin-right: 5px; color: #ffeb3b; /* Yellow for searching */
         }
-        @keyframes mdbl-blink { 0% {opacity:0.2} 50% {opacity:0.8} 100% {opacity:0.2} }
+        .mdbl-scan-error { color: #f44336; font-weight: bold; font-size: 12px; margin-right: 5px; cursor: help; text-decoration: none !important; }
+        @keyframes mdbl-blink { 0% {opacity:0.3} 50% {opacity:1} 100% {opacity:0.3} }
 
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; position: relative; z-index: 10; }
         #customEndsAt { font-size: inherit; opacity: 0.9; cursor: default; margin-left: 10px; display: inline-block; padding: 2px 4px; }
@@ -231,10 +230,9 @@ function openSettingsMenu() {
     initMenu();
     const p = document.getElementById('mdbl-panel');
     if(p) {
-        // Apply theme color just in case
         const col = getComputedStyle(document.documentElement).getPropertyValue('--theme-primary-color').trim() || '#2a6df4';
         p.style.setProperty('--mdbl-theme', col);
-        renderMenuContent(p); // Re-render to ensure state
+        renderMenuContent(p);
         p.style.display = 'block';
     }
 }
@@ -326,41 +324,35 @@ function createRatingHtml(key, val, link, count, title, kind) {
     return `<a href="${safeLink}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}" style="${style}" title="${tooltip}"><img src="${LOGO[key]}" alt="${title}"><span>${CFG.display.showPercentSymbol ? r+'%' : r}</span></a>`;
 }
 
-// SAFE MENU CREATION (DOM based, no onclick strings)
 function renderGearIcon(container) {
     if (container.querySelector('.mdbl-settings-btn')) return;
     
-    // Create Button Element
+    // Create Button
     const btn = document.createElement('div');
     btn.className = 'mdbl-rating-item mdbl-settings-btn';
     btn.title = 'Settings';
     btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>';
-    
-    // Attach listener safely
-    btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openSettingsMenu();
-    });
+    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
 
-    // Create Dots Element
+    // Create Dots
     const dot = document.createElement('span');
     dot.className = 'mdbl-scan-dot';
     dot.textContent = '...';
-    dot.title = 'Scanning for IDs...';
+    dot.title = 'Fetching ID from internal API...';
 
     container.appendChild(btn);
     container.appendChild(dot);
-    
     updateGlobalStyles();
 }
 
 function renderRatings(container, data, pageImdbId, type) {
-    // Keep Gear Icon, Remove Dots
     const btn = container.querySelector('.mdbl-settings-btn');
-    container.innerHTML = ''; // Clear container
-    if(btn) container.appendChild(btn); // Re-append button
-    else renderGearIcon(container); // Or recreate
+    container.innerHTML = ''; 
+    if(btn) {
+        container.appendChild(btn);
+        // Re-attach event because innerHTML nukes listeners
+        btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
+    } else renderGearIcon(container);
 
     let html = '';
     const add = (k, v, lnk, cnt, tit, kind) => html += createRatingHtml(k, v, lnk, cnt, tit, kind);
@@ -399,14 +391,9 @@ function renderRatings(container, data, pageImdbId, type) {
         add('master', avg, wikiUrl, masterCount, 'Master Rating', 'Sources');
     }
 
-    // Append generated HTML
     const contentDiv = document.createElement('span');
     contentDiv.innerHTML = html;
-    // Move children to main container
-    while (contentDiv.firstChild) {
-        container.appendChild(contentDiv.firstChild);
-    }
-    
+    while (contentDiv.firstChild) container.appendChild(contentDiv.firstChild);
     refreshDomElements();
 }
 
@@ -428,14 +415,19 @@ function fetchRatings(container, id, type, apiMode) {
         method: 'GET', url: apiUrl,
         onload: r => {
             container.dataset.fetching = 'false';
-            if (r.status !== 200) return;
+            if (r.status !== 200) { 
+                console.error('[MDBList] API Error:', r.status);
+                const dot = container.querySelector('.mdbl-scan-dot');
+                if(dot) { dot.textContent = '✖'; dot.className = 'mdbl-scan-error'; dot.title = 'MDBList API Error: ' + r.status; }
+                return;
+            }
             try {
                 const d = JSON.parse(r.responseText);
                 localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: d }));
                 renderRatings(container, d, currentImdbId, type);
-            } catch(e) {}
+            } catch(e) { console.error('[MDBList] Parse Error', e); }
         },
-        onerror: e => { container.dataset.fetching = 'false'; }
+        onerror: e => { container.dataset.fetching = 'false'; console.error('[MDBList] Net Error', e); }
     });
 }
 
@@ -445,49 +437,42 @@ function getJellyfinId() {
     return params.get('id');
 }
 
-// === ROBUST ID HUNTER (DOM ONLY) ===
+// === GOD MODE ENGINE (Internal API) ===
 
-function scan() {
-    updateEndsAt();
-    const currentJellyfinId = getJellyfinId();
-    const allWrappers = document.querySelectorAll('.itemMiscInfo');
-    let wrapper = null;
-    for (const el of allWrappers) { if (el.offsetParent !== null) { wrapper = el; break; } }
-    if (!wrapper) return;
-
-    let container = wrapper.querySelector('.mdblist-rating-container');
-    if (!container) {
-        container = document.createElement('div');
-        container.className = 'mdblist-rating-container';
-        container.dataset.jellyfinId = currentJellyfinId;
-        wrapper.appendChild(container);
-        renderGearIcon(container);
-        container.dataset.retries = 0; // Init retries
-    } else if (container.dataset.jellyfinId !== currentJellyfinId) {
-        container.innerHTML = '';
-        renderGearIcon(container);
-        container.dataset.jellyfinId = currentJellyfinId;
-        container.dataset.tmdbId = '';
-        container.dataset.fetched = '';
-        container.dataset.fetching = 'false';
-        container.dataset.retries = 0;
+function resolveIds(jellyfinId, container) {
+    // 1. Try Internal API First (Fastest, Most Accurate)
+    if (window.ApiClient) {
+        const userId = window.ApiClient.getCurrentUserId();
+        window.ApiClient.getItem(userId, jellyfinId).then(item => {
+            let extId = null, mode = 'tmdb', type = 'movie';
+            
+            if (item.Type === 'Series' || item.Type === 'Episode' || item.Type === 'Season') type = 'show';
+            
+            if (item.ProviderIds && item.ProviderIds.Tmdb) { extId = item.ProviderIds.Tmdb; mode = 'tmdb'; }
+            else if (item.ProviderIds && item.ProviderIds.Imdb) { extId = item.ProviderIds.Imdb; mode = 'imdb'; }
+            
+            if (extId) {
+                container.dataset.tmdbId = extId;
+                container.dataset.fetched = 'true';
+                fetchRatings(container, extId, type, mode);
+            } else {
+                console.log('[MDBList] No IDs in Internal API. Trying Fallback...');
+                fallbackDomScrape(container); // API worked but had no IDs
+            }
+        }).catch(err => {
+            console.warn('[MDBList] Internal API Failed. Fallback.', err);
+            fallbackDomScrape(container);
+        });
+    } else {
+        // Fallback if ApiClient is not exposed
+        fallbackDomScrape(container);
     }
+}
 
-    if (container.dataset.fetched === 'true') return;
-
-    // Retry Logic: Stop trying after 20 attempts (10 seconds) to remove dots
-    let retries = parseInt(container.dataset.retries || '0');
-    if (retries > 20) {
-        const dot = container.querySelector('.mdbl-scan-dot');
-        if(dot) dot.style.display = 'none';
-        return;
-    }
-    container.dataset.retries = retries + 1;
-
-    // Scan for IDs
+function fallbackDomScrape(container) {
     let type = 'movie', id = null, mode = 'tmdb';
     
-    // 1. TMDB
+    // Scan Links
     for (let i = 0; i < document.links.length; i++) {
         const href = document.links[i].href;
         if (href.includes('themoviedb.org')) {
@@ -495,7 +480,6 @@ function scan() {
             if (m) { type = m[1] === 'tv' ? 'show' : 'movie'; id = m[2]; mode = 'tmdb'; break; }
         }
     }
-    // 2. IMDb
     if (!id) {
         for (let i = 0; i < document.links.length; i++) {
             const href = document.links[i].href;
@@ -510,6 +494,45 @@ function scan() {
         container.dataset.tmdbId = id;
         container.dataset.fetched = 'true';
         fetchRatings(container, id, type, mode);
+    } else {
+        // Give up visually but keep trying silently in background loop
+        const dot = container.querySelector('.mdbl-scan-dot');
+        if (dot) {
+            dot.style.color = 'red';
+            dot.textContent = '?';
+            dot.title = 'No ID found on page or API';
+        }
+    }
+}
+
+function scan() {
+    updateEndsAt();
+    const currentJellyfinId = getJellyfinId();
+    const allWrappers = document.querySelectorAll('.itemMiscInfo');
+    let wrapper = null;
+    for (const el of allWrappers) { if (el.offsetParent !== null) { wrapper = el; break; } }
+    if (!wrapper) return;
+
+    let container = wrapper.querySelector('.mdblist-rating-container');
+    
+    // Init Container
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'mdblist-rating-container';
+        container.dataset.jellyfinId = currentJellyfinId;
+        wrapper.appendChild(container);
+        renderGearIcon(container);
+        if(currentJellyfinId) resolveIds(currentJellyfinId, container);
+    } 
+    // Navigation Detected (ID Changed)
+    else if (container.dataset.jellyfinId !== currentJellyfinId) {
+        container.innerHTML = '';
+        renderGearIcon(container);
+        container.dataset.jellyfinId = currentJellyfinId;
+        container.dataset.tmdbId = '';
+        container.dataset.fetched = '';
+        container.dataset.fetching = 'false';
+        if(currentJellyfinId) resolveIds(currentJellyfinId, container);
     }
 }
 
