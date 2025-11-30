@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.1.18 — State Loop)
+// @name         Jellyfin Ratings (v10.1.19 — Strict ID Enforcement)
 // @namespace    https://mdblist.com
-// @version      10.1.18
-// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings but keeps Parental Rating. State-Loop Engine.
+// @version      10.1.19
+// @description  Master Rating links to Wikipedia via DuckDuckGo "!ducky". Gear icon first. Hides default Jellyfin ratings but keeps Parental Rating. Strict ID matching to fix SPA navigation.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.18 loading...');
+console.log('[Jellyfin Ratings] v10.1.19 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -496,57 +496,70 @@ function fetchRatings(container, tmdbId, type) {
     });
 }
 
-// === STATE LOOP ENGINE (NO EVENTS, JUST CHECKS) ===
+// === STRICT ID ENFORCEMENT ENGINE ===
 
 function scan() {
-    // 1. Always update Time
     updateEndsAt();
 
-    // 2. Identify current IMDB ID on page
+    // 1. Get IMDB ID currently in DOM
     const imdbLink = document.querySelector('a[href*="imdb.com/title/"]');
     if (imdbLink) {
         const m = imdbLink.href.match(/tt\d+/);
         if (m) currentImdbId = m[0];
     }
 
-    // 3. Loop through TMDB links to find the active item
-    [...document.querySelectorAll('a[href*="themoviedb.org/"]')].forEach(a => {
+    // 2. Find TMDB links to identify movie/show ID
+    const tmdbLinks = document.querySelectorAll('a[href*="themoviedb.org/"]');
+    if (tmdbLinks.length === 0) return; // Nothing to do if no ID found
+
+    // Use the first valid link found
+    let type = null, id = null;
+    for (const a of tmdbLinks) {
         const m = a.href.match(/\/(movie|tv)\/(\d+)/);
         if (m) {
-            const type = m[1] === 'tv' ? 'show' : 'movie';
-            const id = m[2];
-            
-            const wrapper = document.querySelector('.itemMiscInfo');
-            if (wrapper && document.body.contains(wrapper)) {
-                // Check if container exists
-                const existing = wrapper.querySelector('.mdblist-rating-container');
-                
-                if (!existing) {
-                    // Create if missing
-                    const div = document.createElement('div');
-                    div.className = 'mdblist-rating-container';
-                    div.dataset.type = type;
-                    div.dataset.tmdbId = id;
-                    wrapper.appendChild(div);
-                    fetchRatings(div, id, type);
-                } 
-                else if (existing.dataset.tmdbId !== id) {
-                    // Replace if ID mismatch (navigated to new page)
-                    existing.remove();
-                    const div = document.createElement('div');
-                    div.className = 'mdblist-rating-container';
-                    div.dataset.type = type;
-                    div.dataset.tmdbId = id;
-                    wrapper.appendChild(div);
-                    fetchRatings(div, id, type);
-                }
-            }
+            type = m[1] === 'tv' ? 'show' : 'movie';
+            id = m[2];
+            break;
         }
-    });
+    }
+
+    if (!id) return;
+
+    // 3. Check the container
+    const wrapper = document.querySelector('.itemMiscInfo');
+    if (wrapper && document.body.contains(wrapper)) {
+        const existing = wrapper.querySelector('.mdblist-rating-container');
+        
+        // Strict Logic:
+        // - If no container -> CREATE
+        // - If container has WRONG ID -> DESTROY & CREATE
+        // - If container has RIGHT ID -> Do nothing (it's good)
+        
+        if (!existing) {
+            const div = document.createElement('div');
+            div.className = 'mdblist-rating-container';
+            div.dataset.type = type;
+            div.dataset.tmdbId = id; // Stamp ID
+            wrapper.appendChild(div);
+            fetchRatings(div, id, type);
+        } 
+        else if (existing.dataset.tmdbId !== id) {
+            // MISMATCH DETECTED: Jellyfin navigated but kept old container
+            console.log(`[MDBList] ID Mismatch: Old=${existing.dataset.tmdbId} New=${id}. Reloading.`);
+            existing.remove();
+            
+            const div = document.createElement('div');
+            div.className = 'mdblist-rating-container';
+            div.dataset.type = type;
+            div.dataset.tmdbId = id; // Stamp new ID
+            wrapper.appendChild(div);
+            fetchRatings(div, id, type);
+        }
+    }
 }
 
-// The Loop: Runs every 500ms forever. Safe and reliable.
-setInterval(scan, 500);
+// Run strictly every 250ms
+setInterval(scan, 250);
 
 
 /* ==========================================================================
