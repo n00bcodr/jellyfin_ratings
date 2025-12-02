@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.3.9 — Cleaned)
+// @name          Jellyfin Ratings (v10.3.9 — Fix EndsAt)
 // @namespace     https://mdblist.com
 // @version       10.3.9
 // @description   Displays ratings from multiple sources with a settings panel. Includes 3px spacing and vertical separator.
@@ -208,15 +208,17 @@ function formatTime(minutes) {
 
 function parseRuntimeToMinutes(text) {
     if (!text) return 0;
-    // Try "X h Y m" format then "Y min" format
+    // Check "2 h 10 min" format
     let m = text.match(/(?:(\d+)\s*(?:h|hr|std?)\w*\s*)?(?:(\d+)\s*(?:m|min)\w*)?/i);
     if (m && (m[1] || m[2])) {
         const h = parseInt(m[1] || '0', 10);
         const min = parseInt(m[2] || '0', 10);
         if (h > 0 || min > 0) return h * 60 + min;
     }
+    // Check "130 min" format
     m = text.match(/(\d+)\s*(?:m|min)\w*/i);
-    return m ? parseInt(m[1], 10) : 0;
+    if (m) return parseInt(m[1], 10);
+    return 0;
 }
 
 function updateEndsAt() {
@@ -226,14 +228,14 @@ function updateEndsAt() {
         if (el.offsetParent !== null) { primary = el; break; }
     }
 
-    // Hide default rating elements
     document.querySelectorAll('.starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating').forEach(el => {
-        el.style.display = 'none'; el.style.visibility = 'hidden'; el.style.width = '0px';
+        el.style.display = 'none';
+        el.style.visibility = 'hidden';
+        el.style.width = '0px';
     });
 
     if (!primary) return;
 
-    // Find runtime in text nodes
     let minutes = 0;
     const detailContainer = primary.closest('.detailRibbon') || primary.closest('.mainDetailButtons') || primary.parentNode;
     if (detailContainer) {
@@ -248,18 +250,19 @@ function updateEndsAt() {
         }
     }
 
-    // Hide existing native "Ends at" text to avoid duplicates
     const parent = primary.parentNode;
     if (parent) {
         parent.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
             if (el.id === 'customEndsAt') return;
-            if (el.closest('.mdblist-rating-container') || el.classList.contains('mediaInfoOfficialRating')) return;
+            if (el.classList.contains('mdblist-rating-container') || el.closest('.mdblist-rating-container')) return;
+            if (el.classList.contains('mediaInfoOfficialRating')) return;
             const t = (el.textContent || '').toLowerCase();
-            if (t.includes('ends at') || t.includes('endet um') || t.includes('endet am')) el.style.display = 'none';
+            if (t.includes('ends at') || t.includes('endet um') || t.includes('endet am')) {
+                 el.style.display = 'none';
+            }
         });
     }
 
-    // Render Custom Ends At
     let span = document.getElementById('customEndsAt');
     const officialRating = document.querySelector('.mediaInfoOfficialRating');
 
@@ -274,17 +277,19 @@ function updateEndsAt() {
 
         if (officialRating && officialRating.parentNode) {
             officialRating.insertAdjacentElement('afterend', span);
-        } else if (!primary.contains(span)) {
-            primary.appendChild(span);
+        } else {
+             if(!primary.contains(span)) primary.appendChild(span);
         }
-    } else if (span) {
-        span.style.display = 'none';
+    } else {
+        if(span) span.style.display = 'none';
     }
 
-    // Ensure Rating Container position relative to Ends At
     const rc = document.querySelector('.mdblist-rating-container');
-    if (rc && span && span.parentNode) span.insertAdjacentElement('afterend', rc);
-    else if (rc && officialRating) officialRating.insertAdjacentElement('afterend', rc);
+    if (rc && span && span.parentNode) {
+        span.insertAdjacentElement('afterend', rc);
+    } else if (rc && officialRating) {
+        officialRating.insertAdjacentElement('afterend', rc);
+    }
 }
 
 /* ==========================================================================
