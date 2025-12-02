@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.3.0 — Stable & Clean)
+// @name          Jellyfin Ratings (v10.3.1 — No Z-Index Shift)
 // @namespace     https://mdblist.com
-// @version       10.3.0
-// @description   Removed Color Icons & Sliders. Fixes Bouncing by removing transforms. Fixes Menu Cancel/Revert logic.
+// @version       10.3.1
+// @description   Removes Z-Index shift on hover to permanently fix bouncing. Cleaned features.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.3.0 loading...');
+console.log('[Jellyfin Ratings] v10.3.1 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -23,7 +23,6 @@ const DEFAULTS = {
     display: {
         showPercentSymbol: false, 
         colorNumbers: false, 
-        // REMOVED: colorIcons, posX, posY
         colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
         colorChoice: { red: 0, orange: 2, yg: 3, mg: 0 },
         endsAt24h: true
@@ -77,7 +76,6 @@ const LABEL = {
 };
 
 let CFG = loadConfig();
-// Backup for menu cancel
 let CFG_BACKUP = null; 
 let currentImdbId = null;
 
@@ -96,7 +94,6 @@ function loadConfig() {
             display: { 
                 ...DEFAULTS.display, 
                 ...p.display, 
-                // Ensure colorBands/Choice structure exists
                 colorBands: { ...DEFAULTS.display.colorBands, ...p.display?.colorBands }, 
                 colorChoice: { ...DEFAULTS.display.colorChoice, ...p.display?.colorChoice } 
             },
@@ -131,7 +128,6 @@ function updateGlobalStyles() {
             margin-left: 12px; 
             margin-top: ${CFG.spacing.ratingsTopGapPx}px;
             box-sizing: border-box;
-            /* REMOVED TRANSFORM TRANSLATE TO FIX BOUNCING */
             z-index: 2000; 
             position: relative; 
             pointer-events: auto !important; 
@@ -146,6 +142,8 @@ function updateGlobalStyles() {
             color: inherit;
             position: relative;
             z-index: 10;
+            /* Stable transform origin */
+            transform-origin: center center;
         }
         
         /* Inner animation wrapper */
@@ -158,12 +156,11 @@ function updateGlobalStyles() {
             pointer-events: none; /* Mouse ignores moving part */
         }
 
-        .mdbl-rating-item:hover { 
-            z-index: 60; 
-        }
+        /* REMOVED Z-INDEX SHIFT ON HOVER TO FIX BOUNCING */
         .mdbl-rating-item:hover .mdbl-inner {
             transform: scale(1.15) rotate(2deg);
         }
+        
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; }
 
@@ -254,8 +251,7 @@ function refreshDomElements() {
         const img = el.querySelector('img');
         const span = el.querySelector('span');
         
-        // NO COLOR ICONS LOGIC ANYMORE
-        img.style.removeProperty('filter');
+        img.style.removeProperty('filter'); // Clean old filters
         
         if (CFG.display.colorNumbers) span.style.color = color;
         else span.style.color = '';
