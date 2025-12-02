@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.2.5 — Clean Bounce Fix)
+// @name          Jellyfin Ratings (v10.2.6 — Clean Fix)
 // @namespace     https://mdblist.com
-// @version       10.2.5
-// @description   Uses native fetch. Enforces inline placement. Fixes hover bouncing via pointer-events. Adjusted Defaults.
+// @version       10.2.6
+// @description   Uses native fetch. Fixes API errors. Enforces inline placement. Fixes Bouncing. Fixes Menu Layout. Smart Tooltips.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.2.5 loading...');
+console.log('[Jellyfin Ratings] v10.2.6 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -21,8 +21,10 @@ const DEFAULTS = {
         anilist: true, myanimelist: true
     },
     display: {
-        // GEÄNDERT: Defaults auf false gesetzt wie gewünscht
-        showPercentSymbol: false, colorNumbers: false, colorIcons: false,
+        // DEFAULTS WIE GEWÜNSCHT ANGEPASST:
+        showPercentSymbol: false, 
+        colorNumbers: false, 
+        colorIcons: false,
         posX: 0, posY: 0,
         colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
         colorChoice: { red: 0, orange: 2, yg: 3, mg: 0 },
@@ -149,17 +151,17 @@ function updateGlobalStyles() {
             position: relative;
             z-index: 10;
         }
-        /* Wrapper for inner animation to prevent hover jitter */
+        
+        /* FIX BOUNCING: Deaktiviert Maus-Events auf dem animierten Inhalt */
         .mdbl-inner {
             display: flex; align-items: center; gap: 6px;
             transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
             transform-origin: center center;
             will-change: transform;
             backface-visibility: hidden;
-            /* FIX: Hier liegt die Lösung. Wir deaktivieren Maus-Events auf dem
-               sich bewegenden Teil, damit der Hover-Status des Parents stabil bleibt. */
             pointer-events: none; 
         }
+
         .mdbl-rating-item:hover { 
             z-index: 2147483647; 
         }
@@ -168,6 +170,34 @@ function updateGlobalStyles() {
         }
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; }
+
+        /* CUSTOM TOOLTIPS (Ersetzt native Browser Tooltips um Abschneiden zu verhindern) */
+        .mdbl-rating-item[data-title]:hover::after {
+            content: attr(data-title);
+            position: absolute;
+            bottom: 110%; /* Über dem Icon */
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 15, 18, 0.95);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: #eaeaea;
+            padding: 5px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-family: sans-serif;
+            font-weight: 500;
+            white-space: nowrap;
+            z-index: 999999;
+            pointer-events: none;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+        }
+        /* Wenn es eines der letzten 2 Elemente ist, Tooltip nach links verschieben */
+        .mdbl-rating-item:nth-last-child(-n+2)[data-title]:hover::after {
+            left: auto;
+            right: 0;
+            transform: none;
+        }
         
         .mdbl-settings-btn {
             opacity: 0.6; margin-right: 8px; border-right: 1px solid rgba(255,255,255,0.2); 
@@ -418,8 +448,9 @@ function createRatingHtml(key, val, link, count, title, kind) {
     const r = Math.round(n);
     const tooltip = (count && count > 0) ? `${title} — ${count.toLocaleString()} ${kind||'Votes'}` : title;
     
+    // Using data-title instead of title to use custom CSS tooltip
     const style = (!link || link === '#') ? 'cursor:default;' : 'cursor:pointer;';
-    return `<a href="${link}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}" style="${style}" title="${tooltip}"><div class="mdbl-inner"><img src="${LOGO[key]}" alt="${title}"><span>${CFG.display.showPercentSymbol ? r+'%' : r}</span></div></a>`;
+    return `<a href="${link}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}" style="${style}" data-title="${tooltip}"><div class="mdbl-inner"><img src="${LOGO[key]}" alt="${title}"><span>${CFG.display.showPercentSymbol ? r+'%' : r}</span></div></a>`;
 }
 
 function renderGearIcon(container, statusText = '') {
