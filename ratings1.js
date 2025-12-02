@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.3.6 — Unified Tooltips)
+// @name          Jellyfin Ratings (v10.3.8 — Clean Gear & Tighter Spacing)
 // @namespace     https://mdblist.com
-// @version       10.3.6
-// @description   Tooltips now consistently say "Votes" for all audience scores. Fixed gear icon alignment. No link changes.
+// @version       10.3.8
+// @description   Removed the white separator line next to the gear icon and reduced spacing between ratings. Tooltips say "Votes". No link changes.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.3.6 loading...');
+console.log('[Jellyfin Ratings] v10.3.8 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -23,7 +23,7 @@ const DEFAULTS = {
         anilist: true, myanimelist: true
     },
     display: {
-        showPercentSymbol: false, 
+        showPercentSymbol: false,
         colorNumbers: false,
         // Removed: colorIcons, posX, posY
         colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
@@ -79,7 +79,7 @@ const LABEL = {
 };
 
 let CFG = loadConfig();
-let CFG_BACKUP = null; 
+let CFG_BACKUP = null;
 let currentImdbId = null;
 
 const INJ_KEYS = (window.MDBL_KEYS || {});
@@ -91,13 +91,13 @@ function loadConfig() {
         const raw = localStorage.getItem(`${NS}prefs`);
         if (!raw) return JSON.parse(JSON.stringify(DEFAULTS));
         const p = JSON.parse(raw);
-        
+
         return {
             sources: { ...DEFAULTS.sources, ...p.sources },
-            display: { 
+            display: {
                 showPercentSymbol: p.display?.showPercentSymbol ?? DEFAULTS.display.showPercentSymbol,
                 colorNumbers: p.display?.colorNumbers ?? DEFAULTS.display.colorNumbers,
-                colorBands: { ...DEFAULTS.display.colorBands, ...p.display?.colorBands }, 
+                colorBands: { ...DEFAULTS.display.colorBands, ...p.display?.colorBands },
                 colorChoice: { ...DEFAULTS.display.colorChoice, ...p.display?.colorChoice },
                 endsAt24h: p.display?.endsAt24h ?? DEFAULTS.display.endsAt24h
             },
@@ -125,22 +125,22 @@ document.head.appendChild(styleEl);
 function updateGlobalStyles() {
     let rules = `
         .mdblist-rating-container {
-            display: inline-flex; 
+            display: inline-flex;
             align-items: center;
-            justify-content: flex-start; 
+            justify-content: flex-start;
             width: auto;
-            margin-left: 12px; 
+            margin-left: 12px;
             margin-top: ${parseInt(CFG.spacing.ratingsTopGapPx) || 0}px;
             box-sizing: border-box;
-            z-index: 2000; 
-            position: relative; 
-            pointer-events: auto !important; 
+            z-index: 2000;
+            position: relative;
+            pointer-events: auto !important;
             flex-shrink: 0;
             min-height: 24px;
             vertical-align: middle;
         }
         .mdbl-rating-item {
-            display: inline-flex; align-items: center; margin: 0 4px;
+            display: inline-flex; align-items: center; margin: 0 2px; /* Reduced margin from 4px to 2px */
             text-decoration: none;
             cursor: pointer;
             color: inherit;
@@ -150,17 +150,17 @@ function updateGlobalStyles() {
             padding: 4px;
             border-radius: 6px;
         }
-        
+
         .mdbl-inner {
             display: flex; align-items: center; gap: 6px;
             /* Removed Transition/Transform completely */
-            pointer-events: none; 
+            pointer-events: none;
         }
 
-        .mdbl-rating-item:hover { 
+        .mdbl-rating-item:hover {
             background: rgba(255,255,255,0.08); /* Simple background highlight instead of zoom */
         }
-        
+
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; }
 
@@ -168,7 +168,7 @@ function updateGlobalStyles() {
         .mdbl-rating-item[data-title]:hover::after {
             content: attr(data-title);
             position: absolute;
-            bottom: 125%; 
+            bottom: 125%;
             left: 50%;
             transform: translateX(-50%);
             background: rgba(15, 15, 18, 0.98);
@@ -185,41 +185,41 @@ function updateGlobalStyles() {
             box-shadow: 0 4px 14px rgba(0,0,0,0.75);
             backdrop-filter: blur(4px);
         }
-        
+
         .mdbl-rating-item:nth-last-child(-n+2)[data-title]:hover::after {
             left: auto;
             right: -5px;
             transform: none;
         }
-        
+
         .mdbl-settings-btn {
-            opacity: 0.6; 
-            margin-right: 8px; 
-            border-right: 1px solid rgba(255,255,255,0.2); 
+            opacity: 0.6;
+            margin-right: 8px;
+            /* Removed border-right line here */
             padding: 4px; /* Symmetrical padding */
-            cursor: pointer !important; 
+            cursor: pointer !important;
             pointer-events: auto !important;
-            order: -9999 !important; 
+            order: -9999 !important;
             display: inline-flex;
             justify-content: center; /* Centered gear icon */
         }
         .mdbl-settings-btn:hover { opacity: 1; }
         .mdbl-settings-btn:hover .mdbl-inner { } /* No scale here either */
         .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; }
-        
+
         .mdbl-status-text {
             font-size: 11px; opacity: 0.8; margin-left: 5px; color: #ffeb3b;
             white-space: nowrap; font-family: monospace; font-weight: bold;
         }
 
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; position: relative; z-index: 10; }
-        
+
         #customEndsAt { font-size: inherit; opacity: 0.9; cursor: default; margin-left: 10px; display: inline-block; padding: 2px 4px; vertical-align: middle; }
-        
+
         .mediaInfoOfficialRating { display: inline-flex !important; vertical-align: middle; }
-        
-        .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { 
-            display: none !important; 
+
+        .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating {
+            display: none !important;
             opacity: 0 !important;
             visibility: hidden !important;
             width: 0 !important;
@@ -248,16 +248,16 @@ function getRatingColor(bands, choice, r) {
 }
 
 function refreshDomElements() {
-    updateGlobalStyles(); 
+    updateGlobalStyles();
     document.querySelectorAll('.mdbl-rating-item:not(.mdbl-settings-btn)').forEach(el => {
         const score = parseFloat(el.dataset.score);
         if (isNaN(score)) return;
         const color = getRatingColor(CFG.display.colorBands, CFG.display.colorChoice, score);
         const img = el.querySelector('img');
         const span = el.querySelector('span');
-        
-        img.style.removeProperty('filter'); 
-        
+
+        img.style.removeProperty('filter');
+
         if (CFG.display.colorNumbers) span.style.color = color;
         else span.style.color = '';
         const text = CFG.display.showPercentSymbol ? `${Math.round(score)}%` : `${Math.round(score)}`;
@@ -283,7 +283,7 @@ function openSettingsMenu() {
     initMenu();
     // CREATE BACKUP
     CFG_BACKUP = JSON.parse(JSON.stringify(CFG));
-    
+
     const p = document.getElementById('mdbl-panel');
     if(p) {
         const col = getComputedStyle(document.documentElement).getPropertyValue('--theme-primary-color').trim() || '#2a6df4';
@@ -296,7 +296,7 @@ function openSettingsMenu() {
 function closeSettingsMenu(save) {
     const p = document.getElementById('mdbl-panel');
     if (p) p.style.display = 'none';
-    
+
     if (save) {
         saveConfig();
         const ki = p.querySelector('#mdbl-key-mdb');
@@ -313,8 +313,8 @@ function closeSettingsMenu(save) {
 
 function formatTime(minutes) {
     const d = new Date(Date.now() + minutes * 60000);
-    const opts = CFG.display.endsAt24h 
-        ? { hour: '2-digit', minute: '2-digit', hour12: false } 
+    const opts = CFG.display.endsAt24h
+        ? { hour: '2-digit', minute: '2-digit', hour12: false }
         : { hour: 'numeric', minute: '2-digit', hour12: true };
     return d.toLocaleTimeString([], opts);
 }
@@ -338,14 +338,14 @@ function updateEndsAt() {
     for (const el of allWrappers) {
         if (el.offsetParent !== null) { primary = el; break; }
     }
-    
+
     document.querySelectorAll('.starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating').forEach(el => {
         el.style.display = 'none';
         el.style.visibility = 'hidden';
         el.style.width = '0px';
     });
 
-    if (!primary) return; 
+    if (!primary) return;
 
     let minutes = 0;
     const detailContainer = primary.closest('.detailRibbon') || primary.closest('.mainDetailButtons') || primary.parentNode;
@@ -360,7 +360,7 @@ function updateEndsAt() {
             }
         }
     }
-    
+
     const parent = primary.parentNode;
     if (parent) {
         parent.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
@@ -375,9 +375,9 @@ function updateEndsAt() {
     }
 
     let span = document.getElementById('customEndsAt');
-    
+
     const officialRating = document.querySelector('.mediaInfoOfficialRating');
-    
+
     if (minutes > 0) {
         const timeStr = formatTime(minutes);
         if (!span) {
@@ -395,7 +395,7 @@ function updateEndsAt() {
     } else {
         if(span) span.style.display = 'none';
     }
-    
+
     const rc = document.querySelector('.mdblist-rating-container');
     if (rc && span && span.parentNode) {
         span.insertAdjacentElement('afterend', rc);
@@ -409,7 +409,7 @@ function generateLink(key, ids, apiLink, type, title) {
     const sLink = String(apiLink || '');
     const safeTitle = encodeURIComponent(title || '');
     const safeType = (type === 'show' || type === 'tv') ? 'tv' : 'movie';
-    
+
     if (sLink.startsWith('http') && key !== 'metacritic_user' && key !== 'roger_ebert') return sLink;
 
     switch(key) {
@@ -417,29 +417,29 @@ function generateLink(key, ids, apiLink, type, title) {
         case 'tmdb': return ids.tmdb ? `https://www.themoviedb.org/${safeType}/${ids.tmdb}` : '#';
         case 'trakt': return ids.trakt ? `https://trakt.tv/${safeType}s/${ids.trakt}` : (ids.imdb ? `https://trakt.tv/search/imdb/${ids.imdb}` : '#');
         case 'letterboxd': return (sLink.includes('/film/') || sLink.includes('/slug/')) ? `https://letterboxd.com${sLink.startsWith('/') ? '' : '/'}${sLink}` : (ids.imdb ? `https://letterboxd.com/imdb/${ids.imdb}/` : '#');
-        
+
         case 'metacritic_critic':
-        case 'metacritic_user': 
+        case 'metacritic_user':
             if (sLink.startsWith('/movie/') || sLink.startsWith('/tv/')) return `https://www.metacritic.com${sLink}`;
             const slug = localSlug(title);
             return slug ? `https://www.metacritic.com/${safeType}/${slug}` : '#';
 
         case 'rotten_tomatoes_critic':
-        case 'rotten_tomatoes_audience': 
+        case 'rotten_tomatoes_audience':
             if (sLink.startsWith('/')) return `https://www.rottentomatoes.com${sLink}`;
             if (sLink.length > 2) return `https://www.rottentomatoes.com/m/${sLink}`;
             return '#';
-            
-        case 'anilist': 
+
+        case 'anilist':
             if (ids.anilist) return `https://anilist.co/anime/${ids.anilist}`;
             if (/^\d+$/.test(sLink)) return `https://anilist.co/anime/${sLink}`;
             return `https://anilist.co/search/anime?search=${safeTitle}`;
-            
-        case 'myanimelist': 
+
+        case 'myanimelist':
             if (ids.mal) return `https://myanimelist.net/anime/${ids.mal}`;
             if (/^\d+$/.test(sLink)) return `https://myanimelist.net/anime/${sLink}`;
             return `https://myanimelist.net/anime.php?q=${safeTitle}`;
-            
+
         case 'roger_ebert':
              if (sLink && sLink.length > 2 && sLink !== '#') {
                  if (sLink.startsWith('http')) return sLink;
@@ -459,7 +459,7 @@ function createRatingHtml(key, val, link, count, title, kind) {
     const n = parseFloat(val) * (SCALE[key] || 1);
     const r = Math.round(n);
     const tooltip = (count && count > 0) ? `${title} — ${count.toLocaleString()} ${kind||'Votes'}` : title;
-    
+
     const style = (!link || link === '#') ? 'cursor:default;' : 'cursor:pointer;';
     return `<a href="${link}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}" style="${style}" data-title="${tooltip}"><div class="mdbl-inner"><img src="${LOGO[key]}" alt="${title}"><span>${CFG.display.showPercentSymbol ? r+'%' : r}</span></div></a>`;
 }
@@ -473,7 +473,7 @@ function renderGearIcon(container, statusText = '') {
         btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
         container.appendChild(btn);
     }
-    
+
     let st = container.querySelector('.mdbl-status-text');
     if (!st) {
         st = document.createElement('span');
@@ -481,7 +481,7 @@ function renderGearIcon(container, statusText = '') {
         container.appendChild(st);
     }
     st.textContent = statusText;
-    
+
     updateGlobalStyles();
 }
 
@@ -490,32 +490,32 @@ function updateStatus(container, text, color = '#ffeb3b') {
         renderGearIcon(container, text);
     }
     const st = container.querySelector('.mdbl-status-text');
-    if(st) { 
-        st.textContent = text; 
+    if(st) {
+        st.textContent = text;
         st.style.color = color;
     }
 }
 
 function renderRatings(container, data, pageImdbId, type) {
     const btn = container.querySelector('.mdbl-settings-btn');
-    container.innerHTML = ''; 
-    
+    container.innerHTML = '';
+
     if(btn) {
         container.appendChild(btn);
         btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
     } else renderGearIcon(container, '');
 
     let html = '';
-    
-    const ids = { 
-        imdb: data.ids?.imdb || data.imdbid || pageImdbId, 
-        tmdb: data.ids?.tmdb || data.id || data.tmdbid || data.tmdb_id, 
-        trakt: data.ids?.trakt || data.traktid || data.trakt_id, 
+
+    const ids = {
+        imdb: data.ids?.imdb || data.imdbid || pageImdbId,
+        tmdb: data.ids?.tmdb || data.id || data.tmdbid || data.tmdb_id,
+        trakt: data.ids?.trakt || data.traktid || data.trakt_id,
         slug: data.ids?.slug || data.slug,
-        mal: data.ids?.mal,              
-        anilist: data.ids?.anilist      
+        mal: data.ids?.mal,
+        anilist: data.ids?.anilist
     };
-    
+
     const add = (k, v, apiLink, c, tit, kind) => {
         const safeLink = generateLink(k, ids, apiLink, type, data.title);
         html += createRatingHtml(k, v, safeLink, c, tit, kind);
@@ -528,7 +528,7 @@ function renderRatings(container, data, pageImdbId, type) {
         data.ratings.forEach(r => {
             const s = (r.source || '').toLowerCase();
             const v = r.value, c = r.votes || r.count, apiLink = r.url;
-            
+
             if (s.includes('imdb')) { add('imdb', v, apiLink, c, 'IMDb', 'Votes'); trackMaster(v, 'imdb'); }
             else if (s.includes('tmdb')) { add('tmdb', v, apiLink, c, 'TMDb', 'Votes'); trackMaster(v, 'tmdb'); }
             else if (s.includes('trakt')) { add('trakt', v, apiLink, c, 'Trakt', 'Votes'); trackMaster(v, 'trakt'); }
@@ -545,20 +545,20 @@ function renderRatings(container, data, pageImdbId, type) {
             else if (s.includes('anilist')) { add('anilist', v, apiLink, c, 'AniList', 'Votes'); trackMaster(v, 'anilist'); }
             else if (s.includes('myanimelist')) { add('myanimelist', v, apiLink, c, 'MAL', 'Votes'); trackMaster(v, 'myanimelist'); }
         });
-        
+
         if (masterCount > 0) {
             const avg = masterSum / masterCount;
             const wikiUrl = `https://duckduckgo.com/?q=!ducky+site:en.wikipedia.org+${encodeURIComponent(data.title || '')}+${(data.year || '')}+${type === 'movie' ? 'film' : 'TV series'}`;
             html += createRatingHtml('master', avg, wikiUrl, masterCount, 'Master Rating', 'Sources');
         }
-        
+
         const contentDiv = document.createElement('span');
         contentDiv.innerHTML = html;
         while (contentDiv.firstChild) container.appendChild(contentDiv.firstChild);
-        
+
         const st = container.querySelector('.mdbl-status-text');
         if(st) st.remove();
-        
+
         refreshDomElements();
     } else {
         updateStatus(container, 'MDB: 0 Ratings', '#e53935');
@@ -569,7 +569,7 @@ function fetchRatings(container, id, type, apiMode) {
     if (container.dataset.fetching === 'true') return;
     const apiUrl = (apiMode === 'imdb') ? `https://api.mdblist.com/imdb/${id}?apikey=${API_KEY}` : `https://api.mdblist.com/tmdb/${type}/${id}?apikey=${API_KEY}`;
     const cacheKey = `${NS}c_${id}`;
-    
+
     try {
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
@@ -580,7 +580,7 @@ function fetchRatings(container, id, type, apiMode) {
 
     container.dataset.fetching = 'true';
     updateStatus(container, `Fetching ${apiMode.toUpperCase()}...`);
-    
+
     // NATIVE FETCH (Reverted to this to fix 405 error)
     fetch(apiUrl)
         .then(response => {
@@ -608,13 +608,13 @@ function getJellyfinId() {
 // === SCANNER LOGIC ===
 function scan() {
     updateEndsAt();
-    
+
     // 1. Look for TMDB links (Preferred)
     const tmdbLinks = document.querySelectorAll('a[href*="themoviedb.org/"]:not([data-mdbl-processed])');
     if (tmdbLinks.length > 0) {
         const link = tmdbLinks[0];
         link.dataset.mdblProcessed = "true";
-        
+
         const m = link.href.match(/\/(movie|tv)\/(\d+)/);
         if (m) {
             const type = m[1] === 'tv' ? 'show' : 'movie';
@@ -629,7 +629,7 @@ function scan() {
     if (imdbLinks.length > 0) {
         const link = imdbLinks[0];
         link.dataset.mdblProcessed = "true";
-        
+
         const m = link.href.match(/tt\d+/);
         if (m) {
             injectContainer(m[0], 'movie', 'imdb');
@@ -645,14 +645,14 @@ function injectContainer(id, type, apiMode) {
 
     if (target && target.offsetParent !== null) {
         // If we found the rating, use its PARENT as the container
-        parent = target.parentNode; 
+        parent = target.parentNode;
     } else {
         // Fallback: search for itemMiscInfo
           const allWrappers = document.querySelectorAll('.itemMiscInfo');
           for (const el of allWrappers) {
-              if (el.offsetParent !== null) { 
-                  parent = el; 
-                  break; 
+              if (el.offsetParent !== null) {
+                  parent = el;
+                  break;
               }
           }
     }
@@ -663,18 +663,18 @@ function injectContainer(id, type, apiMode) {
     const existing = parent.querySelector('.mdblist-rating-container');
     if (existing) {
         if (existing.dataset.tmdbId === id) return;
-        
+
         // PRIORITY FIX: If existing is TMDb and new is IMDb, ignore IMDb to prevent overwriting/flashing
         if (existing.dataset.source === 'tmdb' && apiMode === 'imdb') return;
-        
+
         existing.remove();
     }
 
     const container = document.createElement('div');
     container.className = 'mdblist-rating-container';
-    container.dataset.tmdbId = id; 
-    container.dataset.source = apiMode; 
-    
+    container.dataset.tmdbId = id;
+    container.dataset.source = apiMode;
+
     // We want to insert this AFTER customEndsAt if possible
     const endsAt = document.getElementById('customEndsAt');
     if (endsAt && endsAt.parentNode === parent) {
@@ -684,7 +684,7 @@ function injectContainer(id, type, apiMode) {
     } else {
         parent.appendChild(container);
     }
-    
+
     renderGearIcon(container, 'Loading...');
     fetchRatings(container, id, type, apiMode);
 }
@@ -751,7 +751,7 @@ function initMenu() {
     let isDrag = false, sx, sy, lx, ly;
     panel.addEventListener('mousedown', (e) => {
         if (window.innerWidth <= 600 || ['INPUT','SELECT','BUTTON'].includes(e.target.tagName)) return;
-        if (e.target.closest('.sec') || e.target.closest('.mdbl-section')) return; 
+        if (e.target.closest('.sec') || e.target.closest('.mdbl-section')) return;
         isDrag = true; const r = panel.getBoundingClientRect();
         lx = r.left; ly = r.top; sx = e.clientX; sy = e.clientY;
         panel.style.right = 'auto'; panel.style.bottom = 'auto';
@@ -763,7 +763,7 @@ function initMenu() {
         panel.style.top = (ly + (e.clientY - sy)) + 'px';
     });
     document.addEventListener('mouseup', () => isDrag = false);
-    
+
     document.addEventListener('mousedown', (e) => {
         if (panel.style.display === 'block' && !panel.contains(e.target) && e.target.id !== 'customEndsAt' && !e.target.closest('.mdbl-settings-btn')) {
             closeSettingsMenu(false); // Revert
@@ -773,7 +773,7 @@ function initMenu() {
 
 function renderMenuContent(panel) {
     const row = (label, input) => `<div class="mdbl-row"><span>${label}</span>${input}</div>`;
-    
+
     let html = `
     <header><h3>Settings</h3><button id="mdbl-close">✕</button></header>
     <div class="mdbl-section" id="mdbl-sec-keys">
@@ -804,9 +804,9 @@ function renderMenuContent(panel) {
       <button id="mdbl-btn-reset">Reset</button>
       <button id="mdbl-btn-save" class="primary">Save & Apply</button>
     </div>`;
-    
+
     panel.innerHTML = html;
-    
+
     const sList = panel.querySelector('#mdbl-sources');
     Object.keys(CFG.priorities).sort((a,b) => CFG.priorities[a]-CFG.priorities[b]).forEach(k => {
          if (!CFG.sources.hasOwnProperty(k)) return;
@@ -826,11 +826,11 @@ function renderMenuContent(panel) {
     });
 
     panel.querySelector('#mdbl-close').onclick = () => closeSettingsMenu(false); // Cancel
-    
+
     const updateLiveAll = () => {
         CFG.display.colorNumbers = panel.querySelector('#d_cnum').checked;
         CFG.display.showPercentSymbol = panel.querySelector('#d_pct').checked;
-        CFG.display.endsAt24h = panel.querySelector('#d_24h').checked; 
+        CFG.display.endsAt24h = panel.querySelector('#d_24h').checked;
         CFG.display.colorBands.redMax = parseInt(panel.querySelector('#th_red').value)||50;
         CFG.display.colorBands.orangeMax = parseInt(panel.querySelector('#th_orange').value)||69;
         CFG.display.colorBands.ygMax = parseInt(panel.querySelector('#th_yg').value)||79;
@@ -843,7 +843,7 @@ function renderMenuContent(panel) {
         if(el.type === 'range' || el.type === 'text' || el.type === 'number') el.addEventListener('input', updateLiveAll);
         else el.addEventListener('change', updateLiveAll);
     });
-    
+
     panel.querySelectorAll('.src-check').forEach(cb => {
         cb.addEventListener('change', (e) => {
             CFG.sources[e.target.closest('.mdbl-source').dataset.key] = e.target.checked;
@@ -854,8 +854,8 @@ function renderMenuContent(panel) {
     let dragSrc = null;
     panel.querySelectorAll('.mdbl-src-row').forEach(row => {
         row.addEventListener('dragstart', e => { dragSrc = row; e.dataTransfer.effectAllowed = 'move'; });
-        row.addEventListener('dragover', e => { 
-            e.preventDefault(); 
+        row.addEventListener('dragover', e => {
+            e.preventDefault();
             if (dragSrc && dragSrc !== row) {
                 const list = row.parentNode;
                 const all = [...list.children];
