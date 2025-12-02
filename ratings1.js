@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.3.10 — 4px Spacing & Longer Line)
+// @name          Jellyfin Ratings (v10.3.9 — 3px Spacing & Straight Line)
 // @namespace     https://mdblist.com
-// @version       10.3.10
-// @description   Spacing restored to 4px. Separator line slightly longer (18px). Tooltips say "Votes".
+// @version       10.3.9
+// @description   Spacing set to 3px. Added a straight vertical separator line next to the gear icon. Tooltips say "Votes".
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.3.10 loading...');
+console.log('[Jellyfin Ratings] v10.3.9 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -141,7 +141,7 @@ function updateGlobalStyles() {
         }
         .mdbl-rating-item {
             display: inline-flex; align-items: center; 
-            margin: 0 4px; /* RESTORED: 4px spacing */
+            margin: 0 3px; /* ADJUSTED: 3px spacing */
             text-decoration: none;
             cursor: pointer;
             color: inherit;
@@ -195,25 +195,25 @@ function updateGlobalStyles() {
 
         .mdbl-settings-btn {
             opacity: 0.6;
-            margin-right: 12px !important; 
-            padding: 4px; 
+            margin-right: 12px !important; /* Increased margin to fit the separator */
+            padding: 4px; /* Symmetrical padding */
             cursor: pointer !important;
             pointer-events: auto !important;
             order: -9999 !important;
             display: inline-flex;
             justify-content: center;
-            position: relative; 
+            position: relative; /* Anchor for the straight line */
         }
 
-        /* STRAIGHT SEPARATOR LINE (LONGER) */
+        /* NEW STRAIGHT SEPARATOR LINE */
         .mdbl-settings-btn::after {
             content: '';
             position: absolute;
-            right: -6px; 
+            right: -6px; /* Position exactly between gear and first rating */
             top: 50%;
             transform: translateY(-50%);
             width: 1px;
-            height: 18px; /* INCREASED: from 14px to 18px */
+            height: 14px; /* Fixed height for straight, non-curved look */
             background: rgba(255, 255, 255, 0.2);
             pointer-events: none;
         }
@@ -783,6 +783,115 @@ function initMenu() {
             closeSettingsMenu(false); // Revert
         }
     });
+}
+
+function renderMenuContent(panel) {
+    const row = (label, input) => `<div class="mdbl-row"><span>${label}</span>${input}</div>`;
+
+    let html = `
+    <header><h3>Settings</h3><button id="mdbl-close">✕</button></header>
+    <div class="mdbl-section" id="mdbl-sec-keys">
+       ${(!INJ_KEYS.MDBLIST && !JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST) ? `<div id="mdbl-key-box" class="mdbl-source"><input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value="${(JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST)||''}"></div>` : ''}
+    </div>
+    <div class="mdbl-section"><div class="mdbl-subtle">Sources (drag to reorder)</div><div id="mdbl-sources"></div><hr></div>
+    <div class="mdbl-section" id="mdbl-sec-display">
+        <div class="mdbl-subtle">Display</div>
+        ${row('Color numbers', `<input type="checkbox" id="d_cnum" ${CFG.display.colorNumbers?'checked':''}>`)}
+        ${row('Show %', `<input type="checkbox" id="d_pct" ${CFG.display.showPercentSymbol?'checked':''}>`)}
+        ${row('Enable 24h format', `<input type="checkbox" id="d_24h" ${CFG.display.endsAt24h?'checked':''}>`)}
+        <hr>
+        <div class="mdbl-subtle">Color bands &amp; palette</div>
+        <div class="mdbl-grid">
+            ${createColorBandRow('th_red', 'Rating', CFG.display.colorBands.redMax, 'red')}
+            ${createColorBandRow('th_orange', 'Rating', CFG.display.colorBands.orangeMax, 'orange')}
+            ${createColorBandRow('th_yg', 'Rating', CFG.display.colorBands.ygMax, 'yg')}
+            <div class="grid-row">
+                <label id="label_top_tier">Top tier (≥ ${CFG.display.colorBands.ygMax+1}%)</label>
+                <div class="grid-right">
+                    <span class="sw" id="sw_mg" style="background:${SWATCHES.mg[CFG.display.colorChoice.mg]}"></span>
+                    <select id="col_mg" class="mdbl-select">${PALETTE_NAMES.mg.map((n,i)=>`<option value="${i}" ${CFG.display.colorChoice.mg===i?'selected':''}>${n}</option>`).join('')}</select>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="mdbl-actions" style="padding-bottom:16px">
+      <button id="mdbl-btn-reset">Reset</button>
+      <button id="mdbl-btn-save" class="primary">Save & Apply</button>
+    </div>`;
+
+    panel.innerHTML = html;
+
+    const sList = panel.querySelector('#mdbl-sources');
+    Object.keys(CFG.priorities).sort((a,b) => CFG.priorities[a]-CFG.priorities[b]).forEach(k => {
+         if (!CFG.sources.hasOwnProperty(k)) return;
+         const div = document.createElement('div');
+         div.className = 'mdbl-source mdbl-src-row';
+         div.draggable = true;
+         div.dataset.key = k;
+         div.innerHTML = `
+            <div class="mdbl-src-left">
+                <span class="mdbl-drag-handle">⋮⋮</span>
+                <img src="${LOGO[k]||''}" style="height:16px">
+                <span class="name" style="font-size:13px;margin-left:8px">${LABEL[k]}</span>
+            </div>
+            <input type="checkbox" class="src-check" ${CFG.sources[k]?'checked':''}>
+         `;
+         sList.appendChild(div);
+    });
+
+    panel.querySelector('#mdbl-close').onclick = () => closeSettingsMenu(false); // Cancel
+
+    const updateLiveAll = () => {
+        CFG.display.colorNumbers = panel.querySelector('#d_cnum').checked;
+        CFG.display.showPercentSymbol = panel.querySelector('#d_pct').checked;
+        CFG.display.endsAt24h = panel.querySelector('#d_24h').checked;
+        CFG.display.colorBands.redMax = parseInt(panel.querySelector('#th_red').value)||50;
+        CFG.display.colorBands.orangeMax = parseInt(panel.querySelector('#th_orange').value)||69;
+        CFG.display.colorBands.ygMax = parseInt(panel.querySelector('#th_yg').value)||79;
+        ['red','orange','yg','mg'].forEach(k => CFG.display.colorChoice[k] = parseInt(panel.querySelector(`#col_${k}`).value)||0);
+        panel.querySelector('#label_top_tier').textContent = `Top tier (≥ ${CFG.display.colorBands.ygMax+1}%)`;
+        ['red','orange','yg','mg'].forEach(k => panel.querySelector(`#sw_${k}`).style.background = SWATCHES[k][CFG.display.colorChoice[k]]);
+        refreshDomElements();
+    };
+    panel.querySelectorAll('input, select').forEach(el => {
+        if(el.type === 'range' || el.type === 'text' || el.type === 'number') el.addEventListener('input', updateLiveAll);
+        else el.addEventListener('change', updateLiveAll);
+    });
+
+    panel.querySelectorAll('.src-check').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+            CFG.sources[e.target.closest('.mdbl-source').dataset.key] = e.target.checked;
+            updateGlobalStyles();
+        });
+    });
+
+    let dragSrc = null;
+    panel.querySelectorAll('.mdbl-src-row').forEach(row => {
+        row.addEventListener('dragstart', e => { dragSrc = row; e.dataTransfer.effectAllowed = 'move'; });
+        row.addEventListener('dragover', e => {
+            e.preventDefault();
+            if (dragSrc && dragSrc !== row) {
+                const list = row.parentNode;
+                const all = [...list.children];
+                const srcI = all.indexOf(dragSrc);
+                const tgtI = all.indexOf(row);
+                if (srcI < tgtI) list.insertBefore(dragSrc, row.nextSibling);
+                else list.insertBefore(dragSrc, row);
+                [...list.querySelectorAll('.mdbl-src-row')].forEach((r, i) => CFG.priorities[r.dataset.key] = i+1);
+                updateGlobalStyles();
+            }
+        });
+    });
+
+    panel.querySelector('#mdbl-btn-save').onclick = () => closeSettingsMenu(true); // Save
+    panel.querySelector('#mdbl-btn-reset').onclick = () => {
+        if(confirm('Reset all settings?')) { localStorage.removeItem('mdbl_prefs'); location.reload(); }
+    };
+    const getInjectorKey = () => { try { return (window.MDBL_KEYS && window.MDBL_KEYS.MDBLIST) ? String(window.MDBL_KEYS.MDBLIST) : ''; } catch { return ''; } };
+    if (getInjectorKey()) {
+       const kw = panel.querySelector('#mdbl-sec-keys');
+       if(kw) { kw.innerHTML = ''; kw.style.display = 'none'; }
+    }
 }
 
 function createColorBandRow(id, lbl, val, key) {
