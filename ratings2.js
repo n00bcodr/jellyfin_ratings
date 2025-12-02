@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.1.51 — Inline Edit)
-// @namespace     https://mdblist.com
-// @version       10.1.51
-// @description   Master Rating links to Wikipedia. Gear icon first. Uses DOM element marking for reliable page transition detection (like reference script). Keeps all link fixes.
-// @match         *://*/*
-// @grant         GM_xmlhttpRequest
+// @name         Jellyfin Ratings (v10.2.0 — Inline Parental Strategy)
+// @namespace    https://mdblist.com
+// @version      10.2.0
+// @description  Places ratings next to parental rating (like other user script) but keeps sliders/settings.
+// @match        *://*/*
+// @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.1.51 (Inline) loading...');
+console.log('[Jellyfin Ratings] v10.2.0 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -28,7 +28,7 @@ const DEFAULTS = {
         colorChoice: { red: 0, orange: 2, yg: 3, mg: 0 },
         endsAt24h: true
     },
-    spacing: { ratingsTopGapPx: 4 },
+    spacing: { ratingsTopGapPx: 0 }, // Changed default to 0 for inline look
     priorities: {
         master: -1, imdb: 1, tmdb: 2, trakt: 3, letterboxd: 4,
         rotten_tomatoes_critic: 5, rotten_tomatoes_audience: 6,
@@ -134,21 +134,21 @@ function updateGlobalStyles() {
     document.documentElement.style.setProperty('--mdbl-y', `${CFG.display.posY}px`);
 
     let rules = `
+        /* UPDATED: inline-flex to sit next to parental rating */
         .mdblist-rating-container {
-            display: inline-flex;
-            flex-wrap: nowrap;
+            display: inline-flex; 
             align-items: center;
             justify-content: flex-start; 
             width: auto;
-            margin-top: 0;
-            margin-left: 10px;
+            margin-left: 10px; 
+            margin-top: ${CFG.spacing.ratingsTopGapPx}px;
             box-sizing: border-box;
             transform: translate(var(--mdbl-x), var(--mdbl-y));
-            z-index: 2147483647; position: relative; 
+            z-index: 2147483647; 
+            position: relative; 
             pointer-events: auto !important; 
             flex-shrink: 0;
             min-height: 24px;
-            vertical-align: middle;
         }
         .mdbl-rating-item {
             display: inline-flex; align-items: center; margin: 0 6px; gap: 6px;
@@ -175,9 +175,12 @@ function updateGlobalStyles() {
         }
 
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; position: relative; z-index: 10; }
-        #customEndsAt { font-size: inherit; opacity: 0.9; cursor: default; margin-left: 10px; display: inline-block; padding: 2px 4px; vertical-align: middle; }
+        #customEndsAt { font-size: inherit; opacity: 0.9; cursor: default; margin-left: 10px; display: inline-block; padding: 2px 4px; }
         
-        .mediaInfoOfficialRating { display: inline-flex !important; margin-right: 0px !important; vertical-align: middle; }
+        /* Ensures the official rating is visible to place next to it */
+        .mediaInfoOfficialRating { display: inline-flex !important; }
+        
+        /* Hides default stars */
         .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { display: none !important; }
     `;
 
@@ -285,6 +288,7 @@ function updateEndsAt() {
         }
     }
     
+    // Cleanup old rating elements we want to hide
     const parent = primary.parentNode;
     if (parent) {
         parent.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
@@ -306,10 +310,8 @@ function updateEndsAt() {
         if (!span) {
             span = document.createElement('div');
             span.id = 'customEndsAt';
-            // CHANGED: Insert BEFORE ratings to achieve: Parental -> Ends At -> Ratings
-            const rc = primary.querySelector('.mdblist-rating-container');
-            if (rc) primary.insertBefore(span, rc);
-            else primary.appendChild(span);
+            // Insert at the very end of the line
+            primary.appendChild(span);
         }
         span.textContent = `Ends at ${timeStr}`;
         span.style.display = ''; 
@@ -319,7 +321,7 @@ function updateEndsAt() {
     }
 }
 
-// === LINK LOGIC (v10.1.50 Style) ===
+// === LINK LOGIC ===
 function generateLink(key, ids, apiLink, type, title) {
     const sLink = String(apiLink || '');
     const safeTitle = encodeURIComponent(title || '');
@@ -356,7 +358,6 @@ function generateLink(key, ids, apiLink, type, title) {
             return `https://myanimelist.net/anime.php?q=${safeTitle}`;
             
         case 'roger_ebert':
-             // Logic from v10.1.12 / 10.1.48
              if (sLink && sLink.length > 2 && sLink !== '#') {
                  if (sLink.startsWith('http')) return sLink;
                  let path = sLink.startsWith('/') ? sLink : `/${sLink}`;
@@ -428,8 +429,8 @@ function renderRatings(container, data, pageImdbId, type) {
         tmdb: data.ids?.tmdb || data.id || data.tmdbid || data.tmdb_id, 
         trakt: data.ids?.trakt || data.traktid || data.trakt_id, 
         slug: data.ids?.slug || data.slug,
-        mal: data.ids?.mal,            
-        anilist: data.ids?.anilist     
+        mal: data.ids?.mal,           
+        anilist: data.ids?.anilist    
     };
     
     const add = (k, v, apiLink, c, tit, kind) => {
@@ -530,18 +531,14 @@ function getJellyfinId() {
     return params.get('id');
 }
 
-// === SCANNER LOGIC (MARKER STRATEGY) ===
+// === SCANNER LOGIC (UPDATED FOR INLINE PLACEMENT) ===
 function scan() {
     updateEndsAt();
-    
-    // Strategy: Find unprocessed TMDB/IMDb links in the DOM
-    // We use a data attribute to mark them so we don't re-process endlessly
-    // But if the link is destroyed/recreated (page nav), we catch it again.
     
     // 1. Look for TMDB links (Preferred)
     const tmdbLinks = document.querySelectorAll('a[href*="themoviedb.org/"]:not([data-mdbl-processed])');
     if (tmdbLinks.length > 0) {
-        const link = tmdbLinks[0]; // Take the first one
+        const link = tmdbLinks[0];
         link.dataset.mdblProcessed = "true";
         
         const m = link.href.match(/\/(movie|tv)\/(\d+)/);
@@ -549,7 +546,7 @@ function scan() {
             const type = m[1] === 'tv' ? 'show' : 'movie';
             const id = m[2];
             injectContainer(id, type, 'tmdb');
-            return; // Done for this cycle
+            return;
         }
     }
 
@@ -561,29 +558,53 @@ function scan() {
         
         const m = link.href.match(/tt\d+/);
         if (m) {
-            injectContainer(m[0], 'movie', 'imdb'); // Default to movie for imdb if unknown
+            injectContainer(m[0], 'movie', 'imdb');
             return;
         }
     }
 }
 
 function injectContainer(id, type, apiMode) {
-    // Find the right place to inject (First visible itemMiscInfo)
-    const allWrappers = document.querySelectorAll('.itemMiscInfo');
-    let wrapper = null;
-    for (const el of allWrappers) {
-        if (el.offsetParent !== null) { wrapper = el; break; }
-    }
-    if (!wrapper) return;
+    // 1. Find the ideal target: The official parental rating
+    let target = document.querySelector('.mediaInfoOfficialRating');
+    let insertMode = 'after'; // Insert immediately after the official rating
 
-    // Clean up OLD container if it exists in this wrapper (from previous page)
-    const oldContainer = wrapper.querySelector('.mdblist-rating-container');
-    if (oldContainer) oldContainer.remove();
+    // 2. Fallback: If no official rating, look for standard metadata wrapper (Jellyfin/Emby standard)
+    if (!target || target.offsetParent === null) {
+         const allWrappers = document.querySelectorAll('.itemMiscInfo');
+         for (const el of allWrappers) {
+             if (el.offsetParent !== null) { 
+                 target = el; 
+                 insertMode = 'append'; 
+                 break; 
+             }
+         }
+    }
+
+    if (!target) return;
+
+    // Check if we already have a container here (cleanup)
+    const parent = (insertMode === 'after') ? target.parentNode : target;
+    const existing = parent.querySelector('.mdblist-rating-container');
+    
+    if (existing) {
+        // If it's already there for the same ID, do nothing
+        if (existing.dataset.tmdbId === id) return;
+        existing.remove();
+    }
 
     const container = document.createElement('div');
     container.className = 'mdblist-rating-container';
-    container.dataset.tmdbId = id; // Mark with ID
-    wrapper.appendChild(container);
+    container.dataset.tmdbId = id; 
+    
+    if (insertMode === 'after') {
+        target.insertAdjacentElement('afterend', container);
+        // Remove any old/duplicate containers that might follow immediately (cleanup logic from other script)
+        const next = container.nextElementSibling;
+        if (next && next.classList.contains('mdblist-rating-container')) next.remove();
+    } else {
+        target.appendChild(container);
+    }
     
     renderGearIcon(container, 'Loading...');
     fetchRatings(container, id, type, apiMode);
@@ -592,7 +613,7 @@ function injectContainer(id, type, apiMode) {
 setInterval(scan, 500);
 
 /* ==========================================================================
-   4. SETTINGS MENU (INIT)
+   4. SETTINGS MENU
 ========================================================================== */
 function initMenu() {
     if(document.getElementById('mdbl-panel')) return;
