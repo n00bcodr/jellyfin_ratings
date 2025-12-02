@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.2.6 — Clean Fix)
+// @name          Jellyfin Ratings (v10.2.7 — Final Fix)
 // @namespace     https://mdblist.com
-// @version       10.2.6
-// @description   Uses native fetch. Fixes API errors. Enforces inline placement. Fixes Bouncing. Fixes Menu Layout. Smart Tooltips.
+// @version       10.2.7
+// @description   Cleaned code. Fixes Menu Layout (removed stray BR tags). Fixes Hover Bouncing (Z-Index stability). Smart Tooltips.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.2.6 loading...');
+console.log('[Jellyfin Ratings] v10.2.7 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -21,7 +21,6 @@ const DEFAULTS = {
         anilist: true, myanimelist: true
     },
     display: {
-        // DEFAULTS WIE GEWÜNSCHT ANGEPASST:
         showPercentSymbol: false, 
         colorNumbers: false, 
         colorIcons: false,
@@ -136,7 +135,7 @@ function updateGlobalStyles() {
             margin-top: ${CFG.spacing.ratingsTopGapPx}px;
             box-sizing: border-box;
             transform: translate(var(--mdbl-x), var(--mdbl-y));
-            z-index: 2147483647; 
+            z-index: 2000; 
             position: relative; 
             pointer-events: auto !important; 
             flex-shrink: 0;
@@ -159,12 +158,14 @@ function updateGlobalStyles() {
             transform-origin: center center;
             will-change: transform;
             backface-visibility: hidden;
-            pointer-events: none; 
+            pointer-events: none; /* WICHTIG: Maus ignoriert die Bewegung */
         }
 
+        /* FIX BOUNCING: Kein extremer Z-Index Sprung mehr */
         .mdbl-rating-item:hover { 
-            z-index: 2147483647; 
+            z-index: 20; 
         }
+        
         .mdbl-rating-item:hover .mdbl-inner {
             transform: scale(1.15) rotate(2deg);
         }
@@ -175,27 +176,28 @@ function updateGlobalStyles() {
         .mdbl-rating-item[data-title]:hover::after {
             content: attr(data-title);
             position: absolute;
-            bottom: 110%; /* Über dem Icon */
+            bottom: 125%; /* Etwas höher als das Icon */
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(15, 15, 18, 0.95);
+            background: rgba(15, 15, 18, 0.98);
             border: 1px solid rgba(255,255,255,0.15);
             color: #eaeaea;
-            padding: 5px 8px;
+            padding: 6px 10px;
             border-radius: 6px;
-            font-size: 11px;
+            font-size: 12px;
             font-family: sans-serif;
             font-weight: 500;
             white-space: nowrap;
             z-index: 999999;
             pointer-events: none;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.6);
             backdrop-filter: blur(4px);
         }
-        /* Wenn es eines der letzten 2 Elemente ist, Tooltip nach links verschieben */
+        
+        /* Tooltip nach links verschieben wenn am rechten Rand (letzte 2 Items) */
         .mdbl-rating-item:nth-last-child(-n+2)[data-title]:hover::after {
             left: auto;
-            right: 0;
+            right: -5px;
             transform: none;
         }
         
@@ -448,8 +450,8 @@ function createRatingHtml(key, val, link, count, title, kind) {
     const r = Math.round(n);
     const tooltip = (count && count > 0) ? `${title} — ${count.toLocaleString()} ${kind||'Votes'}` : title;
     
-    // Using data-title instead of title to use custom CSS tooltip
     const style = (!link || link === '#') ? 'cursor:default;' : 'cursor:pointer;';
+    // Removed native title attribute to prevent double tooltips, using data-title only
     return `<a href="${link}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}" style="${style}" data-title="${tooltip}"><div class="mdbl-inner"><img src="${LOGO[key]}" alt="${title}"><span>${CFG.display.showPercentSymbol ? r+'%' : r}</span></div></a>`;
 }
 
@@ -767,47 +769,47 @@ function initMenu() {
 
 function renderMenuContent(panel) {
     const row = (label, input) => `<div class="mdbl-row"><span>${label}</span>${input}</div>`;
-    const sliderRow = (label, idRange, idNum, min, max, val) => `<br>
-    <div class="mdbl-slider-row"><br>
-        <span>${label}</span><br>
-        <div class="slider-wrapper"><br>
-            <input type="range" id="${idRange}" min="${min}" max="${max}" value="${val}"><br>
-            <input type="number" id="${idNum}" value="${val}" class="mdbl-pos-input"><br>
-        </div><br>
+    const sliderRow = (label, idRange, idNum, min, max, val) => `
+    <div class="mdbl-slider-row">
+        <span>${label}</span>
+        <div class="slider-wrapper">
+            <input type="range" id="${idRange}" min="${min}" max="${max}" value="${val}">
+            <input type="number" id="${idNum}" value="${val}" class="mdbl-pos-input">
+        </div>
     </div>`;
     
-    let html = `<br>
-    <header><h3>Settings</h3><button id="mdbl-close">✕</button></header><br>
-    <div class="mdbl-section" id="mdbl-sec-keys"><br>
-       ${(!INJ_KEYS.MDBLIST && !JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST) ? `<div id="mdbl-key-box" class="mdbl-source"><input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value="${(JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST)||''}"></div>` : ''}<br>
-    </div><br>
-    <div class="mdbl-section"><div class="mdbl-subtle">Sources (drag to reorder)</div><div id="mdbl-sources"></div><hr></div><br>
-    <div class="mdbl-section" id="mdbl-sec-display"><br>
-        <div class="mdbl-subtle">Display</div><br>
-        ${row('Color numbers', `<input type="checkbox" id="d_cnum" ${CFG.display.colorNumbers?'checked':''}>`)}<br>
-        ${row('Color icons', `<input type="checkbox" id="d_cicon" ${CFG.display.colorIcons?'checked':''}>`)}<br>
-        ${row('Show %', `<input type="checkbox" id="d_pct" ${CFG.display.showPercentSymbol?'checked':''}>`)}<br>
-        ${row('Enable 24h format', `<input type="checkbox" id="d_24h" ${CFG.display.endsAt24h?'checked':''}>`)}<br>
-        ${sliderRow('Position X (px)', 'd_x_rng', 'd_x_num', -700, 500, CFG.display.posX)}<br>
-        ${sliderRow('Position Y (px)', 'd_y_rng', 'd_y_num', -500, 500, CFG.display.posY)}<br>
-        <hr><br>
-        <div class="mdbl-subtle">Color bands &amp; palette</div><br>
-        <div class="mdbl-grid"><br>
-            ${createColorBandRow('th_red', 'Rating', CFG.display.colorBands.redMax, 'red')}<br>
-            ${createColorBandRow('th_orange', 'Rating', CFG.display.colorBands.orangeMax, 'orange')}<br>
-            ${createColorBandRow('th_yg', 'Rating', CFG.display.colorBands.ygMax, 'yg')}<br>
-            <div class="grid-row"><br>
-                <label id="label_top_tier">Top tier (≥ ${CFG.display.colorBands.ygMax+1}%)</label><br>
-                <div class="grid-right"><br>
-                    <span class="sw" id="sw_mg" style="background:${SWATCHES.mg[CFG.display.colorChoice.mg]}"></span><br>
-                    <select id="col_mg" class="mdbl-select">${PALETTE_NAMES.mg.map((n,i)=>`<option value="${i}" ${CFG.display.colorChoice.mg===i?'selected':''}>${n}</option>`).join('')}</select><br>
-                </div><br>
-            </div><br>
-        </div><br>
-    </div><br>
-    <div class="mdbl-actions" style="padding-bottom:16px"><br>
-      <button id="mdbl-btn-reset">Reset</button><br>
-      <button id="mdbl-btn-save" class="primary">Save & Apply</button><br>
+    let html = `
+    <header><h3>Settings</h3><button id="mdbl-close">✕</button></header>
+    <div class="mdbl-section" id="mdbl-sec-keys">
+       ${(!INJ_KEYS.MDBLIST && !JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST) ? `<div id="mdbl-key-box" class="mdbl-source"><input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value="${(JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST)||''}"></div>` : ''}
+    </div>
+    <div class="mdbl-section"><div class="mdbl-subtle">Sources (drag to reorder)</div><div id="mdbl-sources"></div><hr></div>
+    <div class="mdbl-section" id="mdbl-sec-display">
+        <div class="mdbl-subtle">Display</div>
+        ${row('Color numbers', `<input type="checkbox" id="d_cnum" ${CFG.display.colorNumbers?'checked':''}>`)}
+        ${row('Color icons', `<input type="checkbox" id="d_cicon" ${CFG.display.colorIcons?'checked':''}>`)}
+        ${row('Show %', `<input type="checkbox" id="d_pct" ${CFG.display.showPercentSymbol?'checked':''}>`)}
+        ${row('Enable 24h format', `<input type="checkbox" id="d_24h" ${CFG.display.endsAt24h?'checked':''}>`)}
+        ${sliderRow('Position X (px)', 'd_x_rng', 'd_x_num', -700, 500, CFG.display.posX)}
+        ${sliderRow('Position Y (px)', 'd_y_rng', 'd_y_num', -500, 500, CFG.display.posY)}
+        <hr>
+        <div class="mdbl-subtle">Color bands &amp; palette</div>
+        <div class="mdbl-grid">
+            ${createColorBandRow('th_red', 'Rating', CFG.display.colorBands.redMax, 'red')}
+            ${createColorBandRow('th_orange', 'Rating', CFG.display.colorBands.orangeMax, 'orange')}
+            ${createColorBandRow('th_yg', 'Rating', CFG.display.colorBands.ygMax, 'yg')}
+            <div class="grid-row">
+                <label id="label_top_tier">Top tier (≥ ${CFG.display.colorBands.ygMax+1}%)</label>
+                <div class="grid-right">
+                    <span class="sw" id="sw_mg" style="background:${SWATCHES.mg[CFG.display.colorChoice.mg]}"></span>
+                    <select id="col_mg" class="mdbl-select">${PALETTE_NAMES.mg.map((n,i)=>`<option value="${i}" ${CFG.display.colorChoice.mg===i?'selected':''}>${n}</option>`).join('')}</select>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="mdbl-actions" style="padding-bottom:16px">
+      <button id="mdbl-btn-reset">Reset</button>
+      <button id="mdbl-btn-save" class="primary">Save & Apply</button>
     </div>`;
     
     panel.innerHTML = html;
@@ -819,13 +821,13 @@ function renderMenuContent(panel) {
          div.className = 'mdbl-source mdbl-src-row';
          div.draggable = true;
          div.dataset.key = k;
-         div.innerHTML = `<br>
-            <div class="mdbl-src-left"><br>
-                <span class="mdbl-drag-handle">⋮⋮</span><br>
-                <img src="${LOGO[k]||''}" style="height:16px"><br>
-                <span class="name" style="font-size:13px;margin-left:8px">${LABEL[k]}</span><br>
-            </div><br>
-            <input type="checkbox" class="src-check" ${CFG.sources[k]?'checked':''}><br>
+         div.innerHTML = `
+            <div class="mdbl-src-left">
+                <span class="mdbl-drag-handle">⋮⋮</span>
+                <img src="${LOGO[k]||''}" style="height:16px">
+                <span class="name" style="font-size:13px;margin-left:8px">${LABEL[k]}</span>
+            </div>
+            <input type="checkbox" class="src-check" ${CFG.sources[k]?'checked':''}>
          `;
          sList.appendChild(div);
     });
@@ -905,11 +907,11 @@ function renderMenuContent(panel) {
 
 function createColorBandRow(id, lbl, val, key) {
     const opts = PALETTE_NAMES[key].map((n,i) => `<option value="${i}" ${CFG.display.colorChoice[key]===i?'selected':''}>${n}</option>`).join('');
-    return `<div class="grid-row"><br>
-        <label>${lbl} ≤ <input type="number" id="${id}" value="${val}" class="mdbl-num-input"> %</label><br>
-        <div class="grid-right"><br>
-            <span class="sw" id="sw_${key}" style="background:${SWATCHES[key][CFG.display.colorChoice[key]]}"></span><br>
-            <select id="col_${key}" class="mdbl-select">${opts}</select><br>
-        </div><br>
+    return `<div class="grid-row">
+        <label>${lbl} ≤ <input type="number" id="${id}" value="${val}" class="mdbl-num-input"> %</label>
+        <div class="grid-right">
+            <span class="sw" id="sw_${key}" style="background:${SWATCHES[key][CFG.display.colorChoice[key]]}"></span>
+            <select id="col_${key}" class="mdbl-select">${opts}</select>
+        </div>
     </div>`;
 }
