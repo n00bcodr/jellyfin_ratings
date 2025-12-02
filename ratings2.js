@@ -1,18 +1,20 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.3.2 — Padding Fix)
+// @name          Jellyfin Ratings (v10.3.3 — Clean Slate)
 // @namespace     https://mdblist.com
-// @version       10.3.2
-// @description   Padding-based stability to stop bouncing. Removed Color Icons/Sliders. Robust Menu Revert.
+// @version       10.3.3
+// @description   Radical cleanup of old config values to fix bouncing. Removed Color Icons/Sliders. Stable Menu logic.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.3.2 loading...');
+console.log('[Jellyfin Ratings] v10.3.3 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
 ========================================================================== */
 
 const NS = 'mdbl_';
+
+// Definiere NUR die erlaubten Schlüssel. Alles andere wird aus dem Speicher gelöscht.
 const DEFAULTS = {
     sources: {
         master: true, imdb: true, tmdb: true, trakt: true, letterboxd: true,
@@ -23,7 +25,7 @@ const DEFAULTS = {
     display: {
         showPercentSymbol: false, 
         colorNumbers: false,
-        // Removed: colorIcons, posX, posY to ensure clean state
+        // colorIcons, posX, posY sind hier NICHT mehr enthalten -> werden gelöscht
         colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
         colorChoice: { red: 0, orange: 2, yg: 3, mg: 0 },
         endsAt24h: true
@@ -80,7 +82,6 @@ let CFG = loadConfig();
 let CFG_BACKUP = null; 
 let currentImdbId = null;
 
-// GET KEY SAFELY
 const INJ_KEYS = (window.MDBL_KEYS || {});
 const LS_KEYS = JSON.parse(localStorage.getItem(`${NS}keys`) || '{}');
 const API_KEY = String(INJ_KEYS.MDBLIST || LS_KEYS.MDBLIST || 'hehfnbo9y8blfyqm1d37ikubl');
@@ -90,16 +91,18 @@ function loadConfig() {
         const raw = localStorage.getItem(`${NS}prefs`);
         if (!raw) return JSON.parse(JSON.stringify(DEFAULTS));
         const p = JSON.parse(raw);
+        
+        // Strict Cleanup: Only keep keys that are in DEFAULTS to prevent ghost settings
         return {
             sources: { ...DEFAULTS.sources, ...p.sources },
             display: { 
-                ...DEFAULTS.display, 
-                ...p.display, 
-                // Removed posX/posY loading to strictly use defaults/CSS
+                showPercentSymbol: p.display?.showPercentSymbol ?? DEFAULTS.display.showPercentSymbol,
+                colorNumbers: p.display?.colorNumbers ?? DEFAULTS.display.colorNumbers,
                 colorBands: { ...DEFAULTS.display.colorBands, ...p.display?.colorBands }, 
-                colorChoice: { ...DEFAULTS.display.colorChoice, ...p.display?.colorChoice } 
+                colorChoice: { ...DEFAULTS.display.colorChoice, ...p.display?.colorChoice },
+                endsAt24h: p.display?.endsAt24h ?? DEFAULTS.display.endsAt24h
             },
-            spacing: { ...DEFAULTS.spacing, ...p.spacing },
+            spacing: { ratingsTopGapPx: p.spacing?.ratingsTopGapPx ?? DEFAULTS.spacing.ratingsTopGapPx },
             priorities: { ...DEFAULTS.priorities, ...p.priorities }
         };
     } catch (e) { return JSON.parse(JSON.stringify(DEFAULTS)); }
@@ -138,30 +141,30 @@ function updateGlobalStyles() {
             vertical-align: middle;
         }
         .mdbl-rating-item {
-            display: inline-flex; align-items: center; margin: 0 4px;
+            display: inline-flex; align-items: center; margin: 0 6px;
             text-decoration: none;
             cursor: pointer;
             color: inherit;
             position: relative;
             z-index: 10;
-            /* PADDING FIX: Creates a safe zone around the icon so mouse doesn't leave during scale */
-            padding: 5px; 
-            border-radius: 4px;
+            /* STABILITY: Force GPU layer */
+            transform: translateZ(0);
+            backface-visibility: hidden;
+            /* Safe padding for mouse hit detection */
+            padding: 4px;
         }
         
-        /* Inner animation wrapper */
         .mdbl-inner {
             display: flex; align-items: center; gap: 6px;
             transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
             transform-origin: center center;
             will-change: transform;
             backface-visibility: hidden;
-            pointer-events: none; /* Mouse ignores moving part */
+            pointer-events: none; /* Crucial: Mouse ignores the moving part */
         }
 
         .mdbl-rating-item:hover { 
-            /* No z-index shift to prevent layer repainting flicker */
-            background: rgba(255,255,255,0.05); /* Subtle highlight confirms hover state */
+            /* No z-index shift */
         }
         
         .mdbl-rating-item:hover .mdbl-inner {
@@ -171,13 +174,13 @@ function updateGlobalStyles() {
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; }
 
-        /* CUSTOM TOOLTIPS (Larger & Smarter) */
+        /* CUSTOM TOOLTIPS (Moved higher to avoid cursor overlap) */
         .mdbl-rating-item[data-title]:hover::after {
             content: attr(data-title);
             position: absolute;
-            bottom: 100%; 
+            bottom: 150%; 
             left: 50%;
-            transform: translateX(-50%) translateY(-5px);
+            transform: translateX(-50%);
             background: rgba(15, 15, 18, 0.98);
             border: 1px solid rgba(255,255,255,0.15);
             color: #eaeaea;
@@ -195,8 +198,8 @@ function updateGlobalStyles() {
         
         .mdbl-rating-item:nth-last-child(-n+2)[data-title]:hover::after {
             left: auto;
-            right: 0;
-            transform: translateY(-5px);
+            right: -10px;
+            transform: none;
         }
         
         .mdbl-settings-btn {
@@ -219,7 +222,6 @@ function updateGlobalStyles() {
         
         .mediaInfoOfficialRating { display: inline-flex !important; vertical-align: middle; }
         
-        /* Force hiding of default ratings */
         .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { 
             display: none !important; 
             opacity: 0 !important;
@@ -305,9 +307,10 @@ function closeSettingsMenu(save) {
         if(ki && ki.value.trim()) localStorage.setItem('mdbl_keys', JSON.stringify({MDBLIST: ki.value.trim()}));
         location.reload();
     } else {
-        // REVERT
+        // REVERT: Simply reload to ensure clean state
         if (CFG_BACKUP) {
             CFG = JSON.parse(JSON.stringify(CFG_BACKUP));
+            // Just revert visual changes for now, no reload needed if we are clean
             refreshDomElements();
         }
     }
@@ -768,7 +771,7 @@ function initMenu() {
     
     document.addEventListener('mousedown', (e) => {
         if (panel.style.display === 'block' && !panel.contains(e.target) && e.target.id !== 'customEndsAt' && !e.target.closest('.mdbl-settings-btn')) {
-            closeSettingsMenu(false); // Revert changes
+            closeSettingsMenu(false); // Revert
         }
     });
 }
