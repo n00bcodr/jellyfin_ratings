@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.3.8 — Clean Gear & Tighter Spacing)
+// @name          Jellyfin Ratings (v10.3.9 — 3px Spacing & Straight Line)
 // @namespace     https://mdblist.com
-// @version       10.3.8
-// @description   Removed the white separator line next to the gear icon and reduced spacing between ratings. Tooltips say "Votes". No link changes.
+// @version       10.3.9
+// @description   Spacing set to 3px. Added a straight vertical separator line next to the gear icon. Tooltips say "Votes".
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.3.8 loading...');
+console.log('[Jellyfin Ratings] v10.3.9 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -140,7 +140,8 @@ function updateGlobalStyles() {
             vertical-align: middle;
         }
         .mdbl-rating-item {
-            display: inline-flex; align-items: center; margin: 0 2px; /* Reduced margin from 4px to 2px */
+            display: inline-flex; align-items: center; 
+            margin: 0 3px; /* ADJUSTED: 3px spacing */
             text-decoration: none;
             cursor: pointer;
             color: inherit;
@@ -194,17 +195,30 @@ function updateGlobalStyles() {
 
         .mdbl-settings-btn {
             opacity: 0.6;
-            margin-right: 8px;
-            /* Removed border-right line here */
+            margin-right: 12px !important; /* Increased margin to fit the separator */
             padding: 4px; /* Symmetrical padding */
             cursor: pointer !important;
             pointer-events: auto !important;
             order: -9999 !important;
             display: inline-flex;
-            justify-content: center; /* Centered gear icon */
+            justify-content: center;
+            position: relative; /* Anchor for the straight line */
         }
+
+        /* NEW STRAIGHT SEPARATOR LINE */
+        .mdbl-settings-btn::after {
+            content: '';
+            position: absolute;
+            right: -6px; /* Position exactly between gear and first rating */
+            top: 50%;
+            transform: translateY(-50%);
+            width: 1px;
+            height: 14px; /* Fixed height for straight, non-curved look */
+            background: rgba(255, 255, 255, 0.2);
+            pointer-events: none;
+        }
+
         .mdbl-settings-btn:hover { opacity: 1; }
-        .mdbl-settings-btn:hover .mdbl-inner { } /* No scale here either */
         .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; }
 
         .mdbl-status-text {
