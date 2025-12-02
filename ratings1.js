@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.3.3 — Clean Slate)
+// @name          Jellyfin Ratings (v10.3.4 — Static & Stable)
 // @namespace     https://mdblist.com
-// @version       10.3.3
-// @description   Radical cleanup of old config values to fix bouncing. Removed Color Icons/Sliders. Stable Menu logic.
+// @version       10.3.4
+// @description   Completely removed hover animations (zoom/tilt) to fix bouncing. Clean config. Stable menu.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.3.3 loading...');
+console.log('[Jellyfin Ratings] v10.3.4 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -14,7 +14,7 @@ console.log('[Jellyfin Ratings] v10.3.3 loading...');
 
 const NS = 'mdbl_';
 
-// Definiere NUR die erlaubten Schlüssel. Alles andere wird aus dem Speicher gelöscht.
+// Definiere NUR die erlaubten Schlüssel.
 const DEFAULTS = {
     sources: {
         master: true, imdb: true, tmdb: true, trakt: true, letterboxd: true,
@@ -25,7 +25,7 @@ const DEFAULTS = {
     display: {
         showPercentSymbol: false, 
         colorNumbers: false,
-        // colorIcons, posX, posY sind hier NICHT mehr enthalten -> werden gelöscht
+        // Removed: colorIcons, posX, posY
         colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
         colorChoice: { red: 0, orange: 2, yg: 3, mg: 0 },
         endsAt24h: true
@@ -92,7 +92,6 @@ function loadConfig() {
         if (!raw) return JSON.parse(JSON.stringify(DEFAULTS));
         const p = JSON.parse(raw);
         
-        // Strict Cleanup: Only keep keys that are in DEFAULTS to prevent ghost settings
         return {
             sources: { ...DEFAULTS.sources, ...p.sources },
             display: { 
@@ -141,44 +140,35 @@ function updateGlobalStyles() {
             vertical-align: middle;
         }
         .mdbl-rating-item {
-            display: inline-flex; align-items: center; margin: 0 6px;
+            display: inline-flex; align-items: center; margin: 0 4px;
             text-decoration: none;
             cursor: pointer;
             color: inherit;
             position: relative;
             z-index: 10;
-            /* STABILITY: Force GPU layer */
-            transform: translateZ(0);
-            backface-visibility: hidden;
-            /* Safe padding for mouse hit detection */
+            /* No Transforms, No Animations */
             padding: 4px;
+            border-radius: 6px;
         }
         
         .mdbl-inner {
             display: flex; align-items: center; gap: 6px;
-            transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-            transform-origin: center center;
-            will-change: transform;
-            backface-visibility: hidden;
-            pointer-events: none; /* Crucial: Mouse ignores the moving part */
+            /* Removed Transition/Transform completely */
+            pointer-events: none; 
         }
 
         .mdbl-rating-item:hover { 
-            /* No z-index shift */
-        }
-        
-        .mdbl-rating-item:hover .mdbl-inner {
-            transform: scale(1.15) rotate(2deg);
+            background: rgba(255,255,255,0.08); /* Simple background highlight instead of zoom */
         }
         
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; }
 
-        /* CUSTOM TOOLTIPS (Moved higher to avoid cursor overlap) */
+        /* CUSTOM TOOLTIPS */
         .mdbl-rating-item[data-title]:hover::after {
             content: attr(data-title);
             position: absolute;
-            bottom: 150%; 
+            bottom: 125%; 
             left: 50%;
             transform: translateX(-50%);
             background: rgba(15, 15, 18, 0.98);
@@ -198,7 +188,7 @@ function updateGlobalStyles() {
         
         .mdbl-rating-item:nth-last-child(-n+2)[data-title]:hover::after {
             left: auto;
-            right: -10px;
+            right: -5px;
             transform: none;
         }
         
@@ -208,7 +198,7 @@ function updateGlobalStyles() {
             order: -9999 !important; display: inline-flex;
         }
         .mdbl-settings-btn:hover { opacity: 1; }
-        .mdbl-settings-btn:hover .mdbl-inner { transform: scale(1.1); }
+        .mdbl-settings-btn:hover .mdbl-inner { } /* No scale here either */
         .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; }
         
         .mdbl-status-text {
@@ -307,10 +297,9 @@ function closeSettingsMenu(save) {
         if(ki && ki.value.trim()) localStorage.setItem('mdbl_keys', JSON.stringify({MDBLIST: ki.value.trim()}));
         location.reload();
     } else {
-        // REVERT: Simply reload to ensure clean state
+        // REVERT: Reload to ensure clean state
         if (CFG_BACKUP) {
             CFG = JSON.parse(JSON.stringify(CFG_BACKUP));
-            // Just revert visual changes for now, no reload needed if we are clean
             refreshDomElements();
         }
     }
