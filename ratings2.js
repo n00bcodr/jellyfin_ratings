@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.2.4 — Native Fetch & Inline Fix)
+// @name          Jellyfin Ratings (v10.2.5 — Fix Hover Bounce)
 // @namespace     https://mdblist.com
-// @version       10.2.4
-// @description   Uses native fetch (like other user script) to fix API errors. Enforces inline placement: Parental > EndsAt > Ratings.
+// @version       10.2.5
+// @description   Uses native fetch (like other user script) to fix API errors. Enforces inline placement: Parental > EndsAt > Ratings. Fixes hover bouncing.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.2.4 loading...');
+console.log('[Jellyfin Ratings] v10.2.5 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -155,6 +155,7 @@ function updateGlobalStyles() {
             transform-origin: center center;
             will-change: transform;
             backface-visibility: hidden;
+            pointer-events: none; /* FIX: Prevents bouncing by ignoring mouse on transformed child */
         }
         .mdbl-rating-item:hover { 
             z-index: 2147483647; 
@@ -732,47 +733,47 @@ function initMenu() {
 
 function renderMenuContent(panel) {
     const row = (label, input) => `<div class="mdbl-row"><span>${label}</span>${input}</div>`;
-    const sliderRow = (label, idRange, idNum, min, max, val) => `
-    <div class="mdbl-slider-row">
-        <span>${label}</span>
-        <div class="slider-wrapper">
-            <input type="range" id="${idRange}" min="${min}" max="${max}" value="${val}">
-            <input type="number" id="${idNum}" value="${val}" class="mdbl-pos-input">
-        </div>
+    const sliderRow = (label, idRange, idNum, min, max, val) => `<br>
+    <div class="mdbl-slider-row"><br>
+        <span>${label}</span><br>
+        <div class="slider-wrapper"><br>
+            <input type="range" id="${idRange}" min="${min}" max="${max}" value="${val}"><br>
+            <input type="number" id="${idNum}" value="${val}" class="mdbl-pos-input"><br>
+        </div><br>
     </div>`;
     
-    let html = `
-    <header><h3>Settings</h3><button id="mdbl-close">✕</button></header>
-    <div class="mdbl-section" id="mdbl-sec-keys">
-       ${(!INJ_KEYS.MDBLIST && !JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST) ? `<div id="mdbl-key-box" class="mdbl-source"><input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value="${(JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST)||''}"></div>` : ''}
-    </div>
-    <div class="mdbl-section"><div class="mdbl-subtle">Sources (drag to reorder)</div><div id="mdbl-sources"></div><hr></div>
-    <div class="mdbl-section" id="mdbl-sec-display">
-        <div class="mdbl-subtle">Display</div>
-        ${row('Color numbers', `<input type="checkbox" id="d_cnum" ${CFG.display.colorNumbers?'checked':''}>`)}
-        ${row('Color icons', `<input type="checkbox" id="d_cicon" ${CFG.display.colorIcons?'checked':''}>`)}
-        ${row('Show %', `<input type="checkbox" id="d_pct" ${CFG.display.showPercentSymbol?'checked':''}>`)}
-        ${row('Enable 24h format', `<input type="checkbox" id="d_24h" ${CFG.display.endsAt24h?'checked':''}>`)}
-        ${sliderRow('Position X (px)', 'd_x_rng', 'd_x_num', -700, 500, CFG.display.posX)}
-        ${sliderRow('Position Y (px)', 'd_y_rng', 'd_y_num', -500, 500, CFG.display.posY)}
-        <hr>
-        <div class="mdbl-subtle">Color bands &amp; palette</div>
-        <div class="mdbl-grid">
-            ${createColorBandRow('th_red', 'Rating', CFG.display.colorBands.redMax, 'red')}
-            ${createColorBandRow('th_orange', 'Rating', CFG.display.colorBands.orangeMax, 'orange')}
-            ${createColorBandRow('th_yg', 'Rating', CFG.display.colorBands.ygMax, 'yg')}
-            <div class="grid-row">
-                <label id="label_top_tier">Top tier (≥ ${CFG.display.colorBands.ygMax+1}%)</label>
-                <div class="grid-right">
-                    <span class="sw" id="sw_mg" style="background:${SWATCHES.mg[CFG.display.colorChoice.mg]}"></span>
-                    <select id="col_mg" class="mdbl-select">${PALETTE_NAMES.mg.map((n,i)=>`<option value="${i}" ${CFG.display.colorChoice.mg===i?'selected':''}>${n}</option>`).join('')}</select>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="mdbl-actions" style="padding-bottom:16px">
-      <button id="mdbl-btn-reset">Reset</button>
-      <button id="mdbl-btn-save" class="primary">Save & Apply</button>
+    let html = `<br>
+    <header><h3>Settings</h3><button id="mdbl-close">✕</button></header><br>
+    <div class="mdbl-section" id="mdbl-sec-keys"><br>
+       ${(!INJ_KEYS.MDBLIST && !JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST) ? `<div id="mdbl-key-box" class="mdbl-source"><input type="text" id="mdbl-key-mdb" placeholder="MDBList API key" value="${(JSON.parse(localStorage.getItem('mdbl_keys')||'{}').MDBLIST)||''}"></div>` : ''}<br>
+    </div><br>
+    <div class="mdbl-section"><div class="mdbl-subtle">Sources (drag to reorder)</div><div id="mdbl-sources"></div><hr></div><br>
+    <div class="mdbl-section" id="mdbl-sec-display"><br>
+        <div class="mdbl-subtle">Display</div><br>
+        ${row('Color numbers', `<input type="checkbox" id="d_cnum" ${CFG.display.colorNumbers?'checked':''}>`)}<br>
+        ${row('Color icons', `<input type="checkbox" id="d_cicon" ${CFG.display.colorIcons?'checked':''}>`)}<br>
+        ${row('Show %', `<input type="checkbox" id="d_pct" ${CFG.display.showPercentSymbol?'checked':''}>`)}<br>
+        ${row('Enable 24h format', `<input type="checkbox" id="d_24h" ${CFG.display.endsAt24h?'checked':''}>`)}<br>
+        ${sliderRow('Position X (px)', 'd_x_rng', 'd_x_num', -700, 500, CFG.display.posX)}<br>
+        ${sliderRow('Position Y (px)', 'd_y_rng', 'd_y_num', -500, 500, CFG.display.posY)}<br>
+        <hr><br>
+        <div class="mdbl-subtle">Color bands &amp; palette</div><br>
+        <div class="mdbl-grid"><br>
+            ${createColorBandRow('th_red', 'Rating', CFG.display.colorBands.redMax, 'red')}<br>
+            ${createColorBandRow('th_orange', 'Rating', CFG.display.colorBands.orangeMax, 'orange')}<br>
+            ${createColorBandRow('th_yg', 'Rating', CFG.display.colorBands.ygMax, 'yg')}<br>
+            <div class="grid-row"><br>
+                <label id="label_top_tier">Top tier (≥ ${CFG.display.colorBands.ygMax+1}%)</label><br>
+                <div class="grid-right"><br>
+                    <span class="sw" id="sw_mg" style="background:${SWATCHES.mg[CFG.display.colorChoice.mg]}"></span><br>
+                    <select id="col_mg" class="mdbl-select">${PALETTE_NAMES.mg.map((n,i)=>`<option value="${i}" ${CFG.display.colorChoice.mg===i?'selected':''}>${n}</option>`).join('')}</select><br>
+                </div><br>
+            </div><br>
+        </div><br>
+    </div><br>
+    <div class="mdbl-actions" style="padding-bottom:16px"><br>
+      <button id="mdbl-btn-reset">Reset</button><br>
+      <button id="mdbl-btn-save" class="primary">Save & Apply</button><br>
     </div>`;
     
     panel.innerHTML = html;
@@ -784,13 +785,13 @@ function renderMenuContent(panel) {
          div.className = 'mdbl-source mdbl-src-row';
          div.draggable = true;
          div.dataset.key = k;
-         div.innerHTML = `
-            <div class="mdbl-src-left">
-                <span class="mdbl-drag-handle">⋮⋮</span>
-                <img src="${LOGO[k]||''}" style="height:16px">
-                <span class="name" style="font-size:13px;margin-left:8px">${LABEL[k]}</span>
-            </div>
-            <input type="checkbox" class="src-check" ${CFG.sources[k]?'checked':''}>
+         div.innerHTML = `<br>
+            <div class="mdbl-src-left"><br>
+                <span class="mdbl-drag-handle">⋮⋮</span><br>
+                <img src="${LOGO[k]||''}" style="height:16px"><br>
+                <span class="name" style="font-size:13px;margin-left:8px">${LABEL[k]}</span><br>
+            </div><br>
+            <input type="checkbox" class="src-check" ${CFG.sources[k]?'checked':''}><br>
          `;
          sList.appendChild(div);
     });
@@ -870,11 +871,11 @@ function renderMenuContent(panel) {
 
 function createColorBandRow(id, lbl, val, key) {
     const opts = PALETTE_NAMES[key].map((n,i) => `<option value="${i}" ${CFG.display.colorChoice[key]===i?'selected':''}>${n}</option>`).join('');
-    return `<div class="grid-row">
-        <label>${lbl} ≤ <input type="number" id="${id}" value="${val}" class="mdbl-num-input"> %</label>
-        <div class="grid-right">
-            <span class="sw" id="sw_${key}" style="background:${SWATCHES[key][CFG.display.colorChoice[key]]}"></span>
-            <select id="col_${key}" class="mdbl-select">${opts}</select>
-        </div>
+    return `<div class="grid-row"><br>
+        <label>${lbl} ≤ <input type="number" id="${id}" value="${val}" class="mdbl-num-input"> %</label><br>
+        <div class="grid-right"><br>
+            <span class="sw" id="sw_${key}" style="background:${SWATCHES[key][CFG.display.colorChoice[key]]}"></span><br>
+            <select id="col_${key}" class="mdbl-select">${opts}</select><br>
+        </div><br>
     </div>`;
 }
