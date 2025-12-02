@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.2.4 — Native Fetch & Inline Fix)
+// @name         Jellyfin Ratings (v10.2.5 — Hover Fix)
 // @namespace    https://mdblist.com
-// @version      10.2.4
-// @description  Uses native fetch (like other user script) to fix API errors. Enforces inline placement: Parental > EndsAt > Ratings.
+// @version      10.2.5
+// @description  Fixes "bouncing" hover animation, uses native fetch, and enforces inline placement.
 // @match        *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.2.4 loading...');
+console.log('[Jellyfin Ratings] v10.2.5 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -140,14 +140,29 @@ function updateGlobalStyles() {
             min-height: 24px;
             vertical-align: middle;
         }
+        
+        /* HOVER FIX: Smoother transition, no z-index switching */
         .mdbl-rating-item {
-            display: inline-flex; align-items: center; margin: 0 6px; gap: 6px;
+            display: inline-flex; 
+            align-items: center; 
+            margin: 0 6px; 
+            gap: 6px;
             text-decoration: none;
-            transition: transform 0.2s ease;
             cursor: pointer;
             color: inherit;
+            
+            /* Prepare for transform */
+            transform-origin: center center;
+            will-change: transform;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            backface-visibility: hidden; 
         }
-        .mdbl-rating-item:hover { transform: scale(1.15) rotate(2deg); z-index: 2147483647; }
+        
+        .mdbl-rating-item:hover { 
+            transform: scale(1.15) rotate(2deg); 
+            /* REMOVED: z-index change here to prevent flickering */
+        }
+        
         .mdbl-rating-item img { height: 1.3em; vertical-align: middle; }
         .mdbl-rating-item span { font-size: 1em; vertical-align: middle; }
         
@@ -170,7 +185,6 @@ function updateGlobalStyles() {
         
         .mediaInfoOfficialRating { display: inline-flex !important; vertical-align: middle; }
         
-        /* Force hiding of default ratings */
         .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { 
             display: none !important; 
             opacity: 0 !important;
@@ -308,9 +322,6 @@ function updateEndsAt() {
     }
 
     let span = document.getElementById('customEndsAt');
-    
-    // We want the order: [Official Rating] -> [Ends At] -> [MDB Ratings]
-    // 1. Find Official Rating
     const officialRating = document.querySelector('.mediaInfoOfficialRating');
     
     if (minutes > 0) {
@@ -322,19 +333,15 @@ function updateEndsAt() {
         span.textContent = `Ends at ${timeStr}`;
         span.style.display = '';
 
-        // PLACEMENT LOGIC
         if (officialRating && officialRating.parentNode) {
-            // Insert AFTER official rating
             officialRating.insertAdjacentElement('afterend', span);
         } else {
-             // Fallback
              if(!primary.contains(span)) primary.appendChild(span);
         }
     } else {
         if(span) span.style.display = 'none';
     }
     
-    // If we have a ratings container, ensure it is AFTER customEndsAt
     const rc = document.querySelector('.mdblist-rating-container');
     if (rc && span && span.parentNode) {
         span.insertAdjacentElement('afterend', rc);
