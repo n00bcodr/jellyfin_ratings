@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Jellyfin Ratings (v10.2.1 — Inline Fix)
+// @name         Jellyfin Ratings (v10.2.2 — Stability Fix)
 // @namespace    https://mdblist.com
-// @version      10.2.1
-// @description  Places ratings truly inline with metadata (Year > Runtime > Parental > EndsAt > Ratings).
+// @version      10.2.2
+// @description  Fixes API 405 error by using native fetch and prevents "flashing" by prioritizing TMDb.
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.2.1 loading...');
+console.log('[Jellyfin Ratings] v10.2.2 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -315,8 +315,7 @@ function updateEndsAt() {
             span = document.createElement('div');
             span.id = 'customEndsAt';
             
-            // KEY FIX: Insert customEndsAt BEFORE ratings container if it exists.
-            // This ensures order: [Metadata] [Ends At] [Ratings]
+            // Insert customEndsAt BEFORE ratings container if it exists.
             const rc = primary.querySelector('.mdblist-rating-container');
             if (rc) primary.insertBefore(span, rc); 
             else primary.appendChild(span);
@@ -507,6 +506,27 @@ function fetchRatings(container, id, type, apiMode) {
     container.dataset.fetching = 'true';
     updateStatus(container, `Fetching ${apiMode.toUpperCase()}...`);
     
+    // FIX FOR 405: Force native fetch for mdblist to avoid GM_xmlhttpRequest headers issues
+    if (apiUrl.includes('mdblist.com')) {
+        fetch(apiUrl)
+            .then(response => {
+                if (!response.ok) throw new Error(String(response.status));
+                return response.json();
+            })
+            .then(d => {
+                container.dataset.fetching = 'false';
+                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: d }));
+                renderRatings(container, d, currentImdbId, type);
+            })
+            .catch(e => {
+                container.dataset.fetching = 'false';
+                console.error('[MDBList] API Error:', e.message || e);
+                updateStatus(container, `API ${e.message || 'Err'}`, '#e53935');
+            });
+        return;
+    }
+
+    // Fallback for non-MDBList URLs (proxies, etc if used)
     GM_xmlhttpRequest({
         method: 'GET', url: apiUrl,
         onload: r => {
@@ -539,7 +559,7 @@ function getJellyfinId() {
     return params.get('id');
 }
 
-// === SCANNER LOGIC (UPDATED FOR INLINE FIX) ===
+// === SCANNER LOGIC (FIXED RACE CONDITION) ===
 function scan() {
     updateEndsAt();
     
@@ -597,16 +617,19 @@ function injectContainer(id, type, apiMode) {
     const existing = parent.querySelector('.mdblist-rating-container');
     if (existing) {
         if (existing.dataset.tmdbId === id) return;
+        
+        // PRIORITY FIX: If existing is TMDb and new is IMDb, ignore IMDb to prevent overwriting/flashing
+        if (existing.dataset.source === 'tmdb' && apiMode === 'imdb') return;
+        
         existing.remove();
     }
 
     const container = document.createElement('div');
     container.className = 'mdblist-rating-container';
     container.dataset.tmdbId = id; 
+    container.dataset.source = apiMode; // Mark source for priority check
     
-    // KEY FIX: Just append to parent. 
-    // This places it INSIDE the flex/block container, preventing it from breaking to a new line (unless the row is full).
-    // And since 'updateEndsAt' now inserts Time BEFORE this container, the order will be correct.
+    // Just append to parent. 
     parent.appendChild(container);
     
     renderGearIcon(container, 'Loading...');
@@ -825,7 +848,157 @@ function renderMenuContent(panel) {
     panel.querySelector('#mdbl-btn-save').onclick = () => {
         saveConfig();
         const ki = panel.querySelector('#mdbl-key-mdb');
-        if(ki && ki.value.trim()) localStorage.setItem('mdbl_keys', JSON.stringify({MDBLIST: ki.value.trim()}));
+        if(ki && ki.value.trim()) localStorage.setItem('mdbl_keys', JSON.stringify({MDBLIST:// ==UserScript==
+// @name         Jellyfin Ratings (v10.2.1 — Inline Fix)
+// @namespace    https://mdblist.com
+// @version      10.2.1
+// @description  Places ratings truly inline with metadata (Year > Runtime > Parental > EndsAt > Ratings).// ==UserScript==
+// @name         Jellyfin Ratings (v10.2.1 — Inline Fix)
+// @namespace    https://mdblist.com
+// @version      10.2.1
+// @description  Places ratings truly inline with metadata (Year > Runtime > Parental > EndsAt > Ratings).
+// @match        *://*/*
+// @grant        GM_xmlhttpRequest
+// ==/UserScript==
+
+console.log('[Jellyfin Ratings] v10.2.1 loading...');
+
+/* ==========================================================================
+   1. CONFIGURATION
+========================================================================== */
+
+const NS = 'mdbl_';
+const DEFAULTS = {
+    sources: {
+        master: true, imdb: true, tmdb: true, trakt: true, letterboxd: true,
+        rotten_tomatoes_critic: true, rotten_tomatoes_audience: true,
+        metacritic_critic: true, metacritic_user: true, roger_ebert: true,
+        anilist: true, myanimelist: true
+    },
+    display: {
+        showPercentSymbol: true, colorNumbers: true, colorIcons: false,
+        posX: 0, posY: 0,
+        colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
+        colorChoice: { red: 0, orange: 2, yg: 3, mg: 0 },
+        endsAt24h: true
+    },
+    spacing: { ratingsTopGapPx: 0 },
+    priorities: {
+        master: -1, imdb: 1, tmdb: 2, trakt: 3, letterboxd: 4,
+        rotten_tomatoes_critic: 5, rotten_tomatoes_audience: 6,
+        roger_ebert: 7, metacritic_critic: 8, metacritic_user: 9,
+        anilist: 10, myanimelist: 11
+    }
+};
+
+const SCALE = {
+    master: 1, imdb: 10, tmdb: 1, trakt: 1, letterboxd: 20, roger_ebert: 25,
+    metacritic_critic: 1, metacritic_user: 10, myanimelist: 10, anilist: 1,
+    rotten_tomatoes_critic: 1, rotten_tomatoes_audience: 1
+};
+
+const SWATCHES = {
+    red:    ['#e53935', '#f44336', '#d32f2f', '#c62828'],
+    orange: ['#fb8c00', '#f39c12', '#ffa726', '#ef6c00'],
+    yg:     ['#9ccc65', '#c0ca33', '#aeea00', '#cddc39'],
+    mg:     ['#43a047', '#66bb6a', '#388e3c', '#81c784']
+};
+
+const PALETTE_NAMES = {
+    red:    ['Alert Red', 'Tomato', 'Crimson', 'Deep Red'],
+    orange: ['Amber', 'Signal Orange', 'Apricot', 'Burnt Orange'],
+    yg:     ['Lime Leaf', 'Citrus', 'Chartreuse', 'Soft Lime'],
+    mg:     ['Emerald', 'Leaf Green', 'Forest', 'Mint']
+};
+
+const CACHE_DURATION_API = 24 * 60 * 60 * 1000;
+const ICON_BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
+
+const LOGO = {
+    master: `${ICON_BASE}/master.png`, imdb: `${ICON_BASE}/IMDb.png`, tmdb: `${ICON_BASE}/TMDB.png`,
+    trakt: `${ICON_BASE}/Trakt.png`, letterboxd: `${ICON_BASE}/letterboxd.png`, anilist: `${ICON_BASE}/anilist.png`,
+    myanimelist: `${ICON_BASE}/mal.png`, roger_ebert: `${ICON_BASE}/Roger_Ebert.png`,
+    rotten_tomatoes_critic: `${ICON_BASE}/Rotten_Tomatoes.png`,
+    rotten_tomatoes_audience: `${ICON_BASE}/Rotten_Tomatoes_positive_audience.png`,
+    metacritic_critic: `${ICON_BASE}/Metacritic.png`, metacritic_user: `${ICON_BASE}/mus2.png`
+};
+
+const LABEL = {
+    master: 'Master Rating', imdb: 'IMDb', tmdb: 'TMDb', trakt: 'Trakt', letterboxd: 'Letterboxd',
+    rotten_tomatoes_critic: 'Rotten Tomatoes (Critic)', rotten_tomatoes_audience: 'Rotten Tomatoes (Audience)',
+    metacritic_critic: 'Metacritic (Critic)', metacritic_user: 'Metacritic (User)',
+
+// @match        *://*/*
+// @grant        GM_xmlhttpRequest
+// ==/UserScript==
+
+console.log('[Jellyfin Ratings] v10.2.1 loading...');
+
+/* ==========================================================================
+   1. CONFIGURATION
+========================================================================== */
+
+const NS = 'mdbl_';
+const DEFAULTS = {
+    sources: {
+        master: true, imdb: true, tmdb: true, trakt: true, letterboxd: true,
+        rotten_tomatoes_critic: true, rotten_tomatoes_audience: true,
+        metacritic_critic: true, metacritic_user: true, roger_ebert: true,
+        anilist: true, myanimelist: true
+    },
+    display: {
+        showPercentSymbol: true, colorNumbers: true, colorIcons: false,
+        posX: 0, posY: 0,
+        colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
+        colorChoice: { red: 0, orange: 2, yg: 3, mg: 0 },
+        endsAt24h: true
+    },
+    spacing: { ratingsTopGapPx: 0 },
+    priorities: {
+        master: -1, imdb: 1, tmdb: 2, trakt: 3, letterboxd: 4,
+        rotten_tomatoes_critic: 5, rotten_tomatoes_audience: 6,
+        roger_ebert: 7, metacritic_critic: 8, metacritic_user: 9,
+        anilist: 10, myanimelist: 11
+    }
+};
+
+const SCALE = {
+    master: 1, imdb: 10, tmdb: 1, trakt: 1, letterboxd: 20, roger_ebert: 25,
+    metacritic_critic: 1, metacritic_user: 10, myanimelist: 10, anilist: 1,
+    rotten_tomatoes_critic: 1, rotten_tomatoes_audience: 1
+};
+
+const SWATCHES = {
+    red:    ['#e53935', '#f44336', '#d32f2f', '#c62828'],
+    orange: ['#fb8c00', '#f39c12', '#ffa726', '#ef6c00'],
+    yg:     ['#9ccc65', '#c0ca33', '#aeea00', '#cddc39'],
+    mg:     ['#43a047', '#66bb6a', '#388e3c', '#81c784']
+};
+
+const PALETTE_NAMES = {
+    red:    ['Alert Red', 'Tomato', 'Crimson', 'Deep Red'],
+    orange: ['Amber', 'Signal Orange', 'Apricot', 'Burnt Orange'],
+    yg:     ['Lime Leaf', 'Citrus', 'Chartreuse', 'Soft Lime'],
+    mg:     ['Emerald', 'Leaf Green', 'Forest', 'Mint']
+};
+
+const CACHE_DURATION_API = 24 * 60 * 60 * 1000;
+const ICON_BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
+
+const LOGO = {
+    master: `${ICON_BASE}/master.png`, imdb: `${ICON_BASE}/IMDb.png`, tmdb: `${ICON_BASE}/TMDB.png`,
+    trakt: `${ICON_BASE}/Trakt.png`, letterboxd: `${ICON_BASE}/letterboxd.png`, anilist: `${ICON_BASE}/anilist.png`,
+    myanimelist: `${ICON_BASE}/mal.png`, roger_ebert: `${ICON_BASE}/Roger_Ebert.png`,
+    rotten_tomatoes_critic: `${ICON_BASE}/Rotten_Tomatoes.png`,
+    rotten_tomatoes_audience: `${ICON_BASE}/Rotten_Tomatoes_positive_audience.png`,
+    metacritic_critic: `${ICON_BASE}/Metacritic.png`, metacritic_user: `${ICON_BASE}/mus2.png`
+};
+
+const LABEL = {
+    master: 'Master Rating', imdb: 'IMDb', tmdb: 'TMDb', trakt: 'Trakt', letterboxd: 'Letterboxd',
+    rotten_tomatoes_critic: 'Rotten Tomatoes (Critic)', rotten_tomatoes_audience: 'Rotten Tomatoes (Audience)',
+    metacritic_critic: 'Metacritic (Critic)', metacritic_user: 'Metacritic (User)',
+ ki.value.trim()}));
         location.reload();
     };
     panel.querySelector('#mdbl-btn-reset').onclick = () => {
