@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.3.5 — Centered Gear)
+// @name          Jellyfin Ratings (v10.3.6 — Unified Tooltips)
 // @namespace     https://mdblist.com
-// @version       10.3.5
-// @description   Fixed gear icon alignment/centering. Removed hover animations. Clean config. Stable menu.
+// @version       10.3.6
+// @description   Tooltips now consistently say "Votes" for all audience scores. Fixed gear icon alignment. No link changes.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] v10.3.5 loading...');
+console.log('[Jellyfin Ratings] v10.3.6 loading...');
 
 /* ==========================================================================
    1. CONFIGURATION
@@ -196,12 +196,12 @@ function updateGlobalStyles() {
             opacity: 0.6; 
             margin-right: 8px; 
             border-right: 1px solid rgba(255,255,255,0.2); 
-            padding: 4px; /* FIX: Symmetrical padding centers the icon */
+            padding: 4px; /* Symmetrical padding */
             cursor: pointer !important; 
             pointer-events: auto !important;
             order: -9999 !important; 
             display: inline-flex;
-            justify-content: center; /* Ensure contents are centered */
+            justify-content: center; /* Centered gear icon */
         }
         .mdbl-settings-btn:hover { opacity: 1; }
         .mdbl-settings-btn:hover .mdbl-inner { } /* No scale here either */
@@ -534,11 +534,11 @@ function renderRatings(container, data, pageImdbId, type) {
             else if (s.includes('trakt')) { add('trakt', v, apiLink, c, 'Trakt', 'Votes'); trackMaster(v, 'trakt'); }
             else if (s.includes('letterboxd')) { add('letterboxd', v, apiLink, c, 'Letterboxd', 'Votes'); trackMaster(v, 'letterboxd'); }
             else if (s.includes('tomatoes') || s.includes('rotten') || s.includes('popcorn')) {
-                if(s.includes('audience') || s.includes('popcorn')) { add('rotten_tomatoes_audience', v, apiLink, c, 'RT Audience', 'Ratings'); trackMaster(v, 'rotten_tomatoes_audience'); }
+                if(s.includes('audience') || s.includes('popcorn')) { add('rotten_tomatoes_audience', v, apiLink, c, 'RT Audience', 'Votes'); trackMaster(v, 'rotten_tomatoes_audience'); }
                 else { add('rotten_tomatoes_critic', v, apiLink, c, 'RT Critic', 'Reviews'); trackMaster(v, 'rotten_tomatoes_critic'); }
             }
             else if (s.includes('metacritic')) {
-                if(s.includes('user')) { add('metacritic_user', v, apiLink, c, 'User', 'Ratings'); trackMaster(v, 'metacritic_user'); }
+                if(s.includes('user')) { add('metacritic_user', v, apiLink, c, 'User', 'Votes'); trackMaster(v, 'metacritic_user'); }
                 else { add('metacritic_critic', v, apiLink, c, 'Metascore', 'Reviews'); trackMaster(v, 'metacritic_critic'); }
             }
             else if (s.includes('roger')) { add('roger_ebert', v, apiLink, c, 'Roger Ebert', 'Reviews'); trackMaster(v, 'roger_ebert'); }
