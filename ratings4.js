@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.7.0 — Final Fix)
+// @name          Jellyfin Ratings (v10.8.0 — Strict TMDB & Fix)
 // @namespace     https://mdblist.com
-// @version       10.7.0
-// @description   Displays ratings from multiple sources with a settings panel. Fixes Layout & API Errors.
+// @version       10.8.0
+// @description   Displays ratings from multiple sources. Strictly follows valid TMDB logic to prevent API 405 errors.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] Loading v10.7.0...');
+console.log('[Jellyfin Ratings] Loading v10.8.0...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -34,7 +34,7 @@ const DEFAULTS = {
         colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
         colorChoice: { red: 0, orange: 2, yg: 3, mg: 0 },
         endsAt24h: true,
-        episodeStrategy: 'series' // 'series' or 'episode'
+        episodeStrategy: 'series' // 'series' (Standard) or 'episode'
     },
     spacing: { ratingsTopGapPx: 0 },
     priorities: {
@@ -144,7 +144,7 @@ function updateGlobalStyles() {
         .mdbl-status-text { font-size: 11px; opacity: 0.8; margin-left: 5px; color: #ffeb3b; white-space: nowrap; font-family: monospace; font-weight: bold; }
         .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; position: relative; z-index: 10; }
         #customEndsAt { font-size: inherit; opacity: 0.9; cursor: default; margin-left: 10px; display: inline-block; padding: 2px 4px; vertical-align: middle; }
-        /* Hide original ratings to prevent clutter */
+        /* Hide original ratings */
         .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { display: none !important; opacity: 0 !important; visibility: hidden !important; width: 0 !important; height: 0 !important; overflow: hidden !important; }
     `;
 
@@ -240,6 +240,7 @@ function updateEndsAt() {
         }
     }
 
+    // Hide original "Ends at"
     const parent = primary.parentNode;
     if (parent) {
         parent.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
@@ -442,7 +443,6 @@ function renderRatings(container, data, type) {
 function fetchRatings(container, id, type, apiMode) {
     if (container.dataset.fetching === 'true') return;
     
-    // Ensure we send correct parameters to prevent API 404s
     const apiUrl = (apiMode === 'imdb') 
         ? `${API_BASE}/imdb/${id}?apikey=${API_KEY}` 
         : `${API_BASE}/tmdb/${type}/${id}?apikey=${API_KEY}`;
@@ -480,28 +480,29 @@ function fetchRatings(container, id, type, apiMode) {
         });
 }
 
-// === ROBUST SCANNER (Fixes API Errors on Episodes) ===
+// === SCANNER STRICTLY FOR TMDB (No IMDb fallback to avoid 405) ===
 function scan() {
     updateEndsAt();
 
-    // 1. Scan for TMDB links. Use strict start-match regex to ignore season/episode details for Series mode
+    // Only scan TMDB links, similar to ratings-other-user.js
     const tmdbLinks = document.querySelectorAll('a[href*="themoviedb.org/"]:not([data-mdbl-processed])');
     
     tmdbLinks.forEach(link => {
         link.dataset.mdblProcessed = "true";
-        // Extract ONLY the show/movie ID from the start of the URL
+        // Extract ID and ignore season/episode parts (e.g. /tv/123/season/1 -> ID 123)
         const m = link.href.match(/\/themoviedb\.org\/(movie|tv)\/(\d+)/);
         
         if (m) {
             const rawType = m[1]; // 'tv' or 'movie'
             const rawId = m[2];   // numeric ID
             
+            // Check if it's an episode page
             const isEpisodeLink = link.href.includes('/season/') || link.href.includes('/episode/');
             
             if (rawType === 'tv' && isEpisodeLink) {
-                // === EPISODE LOGIC ===
+                // === EPISODE PAGE ===
                 if (CFG.display.episodeStrategy === 'episode') {
-                    // Try to find a sibling IMDb link for the specific episode
+                    // 1. Try to find a valid IMDb ID in the same container
                     const parent = link.closest('.itemMiscInfo') || link.closest('.mainDetailButtons') || link.parentNode.parentNode;
                     let imdbEpisodeId = null;
                     
@@ -514,46 +515,34 @@ function scan() {
                     }
                     
                     if (imdbEpisodeId) {
-                        // Found explicit Episode ID -> Use it (as 'movie' type for MDBList generic fetch)
+                        // Attempt to fetch specific episode
                         injectContainer(imdbEpisodeId, 'movie', 'imdb'); 
                     } else {
-                        // No Episode ID found? -> FALLBACK to Series ID (Prevents API Error)
+                        // SAFE FALLBACK: Use Series ID (Prevents 405 if IMDb ID missing/bad)
                         injectContainer(rawId, 'show', 'tmdb');
                     }
                 } else {
-                    // Strategy: Series Rating (Standard) -> Use Series ID
+                    // STANDARD MODE: Use Series ID (Like ratings-other-user.js)
                     injectContainer(rawId, 'show', 'tmdb');
                 }
             } else {
-                // === MOVIE OR SHOW MAIN PAGE ===
+                // === MOVIE OR SHOW PAGE ===
                 const type = rawType === 'tv' ? 'show' : 'movie';
                 injectContainer(rawId, type, 'tmdb');
             }
         }
     });
-
-    // 2. Scan for IMDb links (Fallback)
-    const imdbLinks = document.querySelectorAll('a[href*="imdb.com/title/"]:not([data-mdbl-processed])');
-    imdbLinks.forEach(link => {
-        link.dataset.mdblProcessed = "true";
-        const m = link.href.match(/tt\d+/);
-        if (m) {
-            injectContainer(m[0], 'movie', 'imdb');
-        }
-    });
 }
 
 function injectContainer(id, type, apiMode) {
-    // === RESTORED ORIGINAL LAYOUT LOGIC ===
+    // 1. Try official rating container (primary target)
     let target = document.querySelector('.mediaInfoOfficialRating');
     let parent = (target && target.offsetParent !== null) ? target.parentNode : null;
 
     if (!parent) {
-        // Fallback: If no official age rating exists (common on episodes), 
-        // find the misc info area (Runtime, Date, etc.)
+        // 2. Fallback: Search for runtime text (common on episodes)
         const allWrappers = document.querySelectorAll('.itemMiscInfo, .mediaInfoItem');
         for (const el of allWrappers) {
-             // Look for runtime pattern to identify metadata row
              if (el.innerText && /^\d+\s*(?:h(?:ours?)?)?\s*\d*\s*m(?:inutes?)?$/i.test(el.innerText.trim())) {
                  if (el.offsetParent !== null) { parent = el.parentNode; target = el; break; }
              }
@@ -561,6 +550,7 @@ function injectContainer(id, type, apiMode) {
     }
     
     if (!parent) {
+        // 3. Last fallback
         parent = document.querySelector('.mainDetailButtons');
     }
     
@@ -577,17 +567,13 @@ function injectContainer(id, type, apiMode) {
     container.dataset.tmdbId = id;
     container.dataset.source = apiMode;
 
-    // === PLACEMENT LOGIC ===
+    // Logic to insert AFTER the target (e.g. after age rating or runtime)
     const endsAt = document.getElementById('customEndsAt');
-    
     if (endsAt && endsAt.parentNode === parent) {
-        // If "Ends At" exists, put ratings after it
         endsAt.insertAdjacentElement('afterend', container);
     } else if (target && target.parentNode === parent) {
-        // Put ratings AFTER the target (Age Rating) -> [Age Rating] [Ratings]
         target.insertAdjacentElement('afterend', container);
     } else {
-        // Just append to parent if no anchor found
         parent.appendChild(container);
     }
 
