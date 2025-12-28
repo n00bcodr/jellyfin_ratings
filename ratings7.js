@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v11.13.0 — Strict Restoration)
+// @name          Jellyfin Ratings (v11.14.0 — Final Stability)
 // @namespace     https://mdblist.com
-// @version       11.13.0
-// @description   Restores original Drag & Drop logic (live preview), fixes 'Ends At' order via DOM chaining, and ensures reloads on save.
+// @version       11.14.0
+// @description   Fixes Drag&Drop, forces Page Reload on save, ensures Ends-At reliability by coupling it with rating scan.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] Loading v11.13.0...');
+console.log('[Jellyfin Ratings] Loading v11.14.0...');
 
 (function() {
     'use strict';
@@ -137,7 +137,6 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
             #mdbl-custom-ends { display: inline-block; margin-left: 10px; opacity: 0.9; vertical-align: middle; font-size: inherit; }
             .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { display: none !important; }
         `;
-        // Apply priorities
         Object.keys(CFG.priorities).forEach(key => {
             const isEnabled = CFG.sources[key];
             const order = CFG.priorities[key];
@@ -169,7 +168,7 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
     updateGlobalStyles();
 
     /* ==========================================================================
-       3. ENDS AT LOGIC (Helper only)
+       3. ENDS AT LOGIC (Tied to scan)
     ========================================================================== */
     function formatTime(minutes) {
         const d = new Date(Date.now() + minutes * 60000);
@@ -190,10 +189,9 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
         return h * 60 + m;
     }
 
-    // Logic to Create/Update the "Ends At" element and enforce its position
-    // returns the EndsAt Element (created or found)
-    function ensureEndsAt(anchor) {
-        // Hide default text
+    // This function returns the element that represents "Ends At", creating it if needed.
+    function getEndsAtElement(anchor) {
+        // Hide default text duplicates
         if (anchor.parentNode) {
             anchor.parentNode.querySelectorAll('*').forEach(el => {
                 if (el.id !== 'mdbl-custom-ends' && !el.classList.contains('mdblist-rating-container')) {
@@ -210,18 +208,19 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
             if (!endsAtDiv) {
                 endsAtDiv = document.createElement('div');
                 endsAtDiv.id = 'mdbl-custom-ends';
-                // Insert initially after anchor
-                anchor.insertAdjacentElement('afterend', endsAtDiv);
-            } else if (endsAtDiv.previousElementSibling !== anchor) {
-                // Force Move after anchor
-                anchor.insertAdjacentElement('afterend', endsAtDiv);
             }
             endsAtDiv.textContent = `Ends at ${formatTime(runtimeMinutes)}`;
             endsAtDiv.style.display = '';
+            
+            // Force position: Anchor -> EndsAt
+            if (anchor.nextSibling !== endsAtDiv) {
+                anchor.insertAdjacentElement('afterend', endsAtDiv);
+            }
             return endsAtDiv;
+        } else {
+            if (endsAtDiv) endsAtDiv.style.display = 'none';
+            return null;
         }
-        if (endsAtDiv) endsAtDiv.style.display = 'none';
-        return null;
     }
 
     /* ==========================================================================
@@ -251,6 +250,16 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
         }
     }
 
+    // Helper for 1-100 scaling
+    function getScaledScore(key, rawVal) {
+        let num = parseFloat(rawVal);
+        if (isNaN(num)) return null;
+        if (['imdb', 'tmdb', 'metacritic_user', 'myanimelist'].includes(key)) return (num <= 10) ? num * 10 : num;
+        if (key === 'letterboxd') return (num <= 5) ? num * 20 : num;
+        if (key === 'roger_ebert') return (num <= 4) ? num * 25 : num;
+        return num;
+    }
+
     function createRatingHtml(key, score, link, count, title) {
         if (score === null) return '';
         if (!LOGO[key]) return '';
@@ -272,13 +281,13 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
 
         let itemsHtml = '';
         const ids = { imdb: data.ids?.imdb||data.imdbid, tmdb: data.ids?.tmdb||data.id, trakt: data.ids?.trakt||data.traktid, mal: data.ids?.mal, anilist: data.ids?.anilist };
+        
         let masterSum = 0, masterCount = 0;
 
         const processRating = (key, rawVal, url, count, name) => {
-            if (rawVal === null || rawVal === undefined) return;
-            const val = parseFloat(rawVal);
-            if (isNaN(val)) return;
-            const score = val * (SCALE[key] || 1);
+            const score = getScaledScore(key, rawVal);
+            if (score === null) return;
+
             masterSum += score;
             masterCount++;
             itemsHtml += createRatingHtml(key, score, generateLink(key, ids, url, type, data.title), count, name);
@@ -387,22 +396,20 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
     }
 
     function insertContainer(target, type, id, apiSource) {
-        // CHAIN LOGIC: Target -> EndsAt -> Ratings
+        // --- 1. GET or CREATE ENDS AT ELEMENT ---
+        // This ensures Ends At appears reliable because it's called every time the loop finds the target.
+        const endsAtDiv = getEndsAtElement(target);
         
-        // 1. Ensure Ends At element exists and is after target
-        let endsAtDiv = ensureEndsAt(target);
-        
-        // If EndsAt was created/found, that is our anchor for the ratings. Otherwise, use target.
+        // --- 2. Determine Anchor for Ratings ---
+        // If EndsAt exists, we stick ratings after IT. Else after target.
         const ratingsAnchor = endsAtDiv || target;
 
-        // Check if ratings container already exists after the correct anchor
         let next = ratingsAnchor.nextElementSibling;
         if (next && next.classList.contains('mdblist-rating-container')) {
             if (next.dataset.id === id) return;
             next.remove();
         }
 
-        // Create Ratings Container
         const container = document.createElement('div');
         container.className = 'mdblist-rating-container';
         container.dataset.id = id;
@@ -413,9 +420,7 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
         btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); };
         container.appendChild(btn);
 
-        // Insert
         ratingsAnchor.insertAdjacentElement('afterend', container);
-
         fetchRatings(type, id, container, apiSource);
     }
 
@@ -423,7 +428,7 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
     scanAndProcessLinks();
 
     /* ==========================================================================
-       6. SETTINGS MENU (Original Logic)
+       6. SETTINGS MENU
     ========================================================================== */
     function initMenu() {
         if(document.getElementById('mdbl-panel')) return;
@@ -467,7 +472,7 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
         
         let isDrag = false, sx, sy, lx, ly;
         panel.addEventListener('mousedown', (e) => {
-            if (!e.target.closest('header')) return; // Header Drag Only
+            if (!e.target.closest('header')) return;
             if (window.innerWidth<=600||['BUTTON'].includes(e.target.tagName))return; 
             isDrag=true; const r=panel.getBoundingClientRect(); lx=r.left; ly=r.top; sx=e.clientX; sy=e.clientY; panel.style.right='auto'; panel.style.bottom='auto'; panel.style.left=lx+'px'; panel.style.top=ly+'px'; 
         });
@@ -494,7 +499,8 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
         if (save) {
             saveConfig();
             if(p.querySelector('#mdbl-key-mdb').value.trim()) localStorage.setItem('mdbl_keys', JSON.stringify({MDBLIST: p.querySelector('#mdbl-key-mdb').value.trim()}));
-            location.reload();
+            // FORCE RELOAD HERE
+            window.location.reload();
         } else if (CFG_BACKUP) {
             CFG = JSON.parse(JSON.stringify(CFG_BACKUP));
             refreshDomElements();
@@ -545,7 +551,6 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
         };
         panel.querySelectorAll('input, select').forEach(el => el.addEventListener(el.type==='checkbox'?'change':'input', update));
 
-        // LIST ITEM DRAG (ORIGINAL LOGIC)
         const sList = panel.querySelector('#mdbl-sources');
         let dragSrc = null;
         Object.keys(CFG.priorities).sort((a,b) => CFG.priorities[a]-CFG.priorities[b]).forEach(k => {
@@ -566,7 +571,6 @@ console.log('[Jellyfin Ratings] Loading v11.13.0...');
                      const list = div.parentNode, all = [...list.children];
                      const srcI = all.indexOf(dragSrc), tgtI = all.indexOf(div);
                      list.insertBefore(dragSrc, srcI < tgtI ? div.nextSibling : div);
-                     // Update priorities immediately
                      [...list.querySelectorAll('.mdbl-src-row')].forEach((r, i) => CFG.priorities[r.dataset.key] = i+1);
                      updateGlobalStyles(); 
                  }
