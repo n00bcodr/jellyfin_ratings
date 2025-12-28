@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v11.9.0 — Fix RT Links)
+// @name          Jellyfin Ratings (v11.10.0 — Positioning Force Fix)
 // @namespace     https://mdblist.com
-// @version       11.9.0
-// @description   Fixes broken Rotten Tomatoes links (removes double /m/), keeps all other features stable.
+// @version       11.10.0
+// @description   Forces 'Ends At' before ratings on load, restores Menu clickability, keeps correct scaling and links.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] Loading v11.9.0...');
+console.log('[Jellyfin Ratings] Loading v11.10.0...');
 
 (function() {
     'use strict';
@@ -46,20 +46,11 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
         }
     };
 
-    // ORIGINAL SCALE FACTORS (Correct 1-100 calc)
+    // ORIGINAL SCALE FACTORS (Restored)
     const SCALE = {
-        master: 1, 
-        imdb: 10, 
-        tmdb: 1, 
-        trakt: 1, 
-        letterboxd: 20, 
-        roger_ebert: 25,
-        metacritic_critic: 1, 
-        metacritic_user: 10, 
-        myanimelist: 10, 
-        anilist: 1,
-        rotten_tomatoes_critic: 1, 
-        rotten_tomatoes_audience: 1
+        master: 1, imdb: 10, tmdb: 1, trakt: 1, letterboxd: 20, roger_ebert: 25,
+        metacritic_critic: 1, metacritic_user: 10, myanimelist: 10, anilist: 1,
+        rotten_tomatoes_critic: 1, rotten_tomatoes_audience: 1
     };
 
     const SWATCHES = {
@@ -147,7 +138,6 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
             #mdbl-custom-ends { display: inline-block; margin-left: 10px; opacity: 0.9; vertical-align: middle; font-size: inherit; }
             .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { display: none !important; }
         `;
-        // Apply priorities
         Object.keys(CFG.priorities).forEach(key => {
             const isEnabled = CFG.sources[key];
             const order = CFG.priorities[key];
@@ -179,7 +169,7 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
     updateGlobalStyles();
 
     /* ==========================================================================
-       3. ENDS AT LOGIC (Strict Position)
+       3. ENDS AT LOGIC (Strict)
     ========================================================================== */
     function formatTime(minutes) {
         const d = new Date(Date.now() + minutes * 60000);
@@ -211,10 +201,9 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
                 }
             }
         }
-        
         if (!anchor) return;
 
-        // Cleanup default text
+        // Clean default
         if (anchor.parentNode) {
             anchor.parentNode.querySelectorAll('*').forEach(el => {
                 if (el.id !== 'mdbl-custom-ends' && !el.classList.contains('mdblist-rating-container')) {
@@ -236,7 +225,7 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
             endsAtDiv.textContent = `Ends at ${formatTime(runtimeMinutes)}`;
             endsAtDiv.style.display = '';
 
-            // STRICT ORDER: Anchor -> EndsAt -> Ratings
+            // --- STRICT ORDER ENFORCEMENT: [Anchor] -> [EndsAt] -> [Ratings] ---
             if (anchor.nextSibling !== endsAtDiv) {
                 anchor.insertAdjacentElement('afterend', endsAtDiv);
             }
@@ -267,10 +256,8 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
             case 'metacritic_user': return `https://www.metacritic.com/${safeType}/${localSlug(title)}`;
             case 'rotten_tomatoes_critic':
             case 'rotten_tomatoes_audience': 
-                // ORIGINAL FIX: Check for leading slash
                 if (sLink.startsWith('/')) return `https://www.rottentomatoes.com${sLink}`;
                 return sLink.length > 2 ? `https://www.rottentomatoes.com/m/${sLink}` : '#';
-            
             case 'anilist': return ids.anilist ? `https://anilist.co/anime/${ids.anilist}` : `https://anilist.co/search/anime?search=${safeTitle}`;
             case 'myanimelist': return ids.mal ? `https://myanimelist.net/anime/${ids.mal}` : `https://myanimelist.net/anime.php?q=${safeTitle}`;
             case 'roger_ebert': return sLink.length > 2 ? `https://www.rogerebert.com/reviews/${sLink}` : `https://duckduckgo.com/?q=!ducky+site:rogerebert.com/reviews+${safeTitle}`;
@@ -290,26 +277,23 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
     function renderRatings(container, data, type) {
         container.innerHTML = '';
         
+        // Settings Button (RE-ATTACH listener to prevent "menu broken" bug)
         const btn = document.createElement('div');
         btn.className = 'mdbl-rating-item mdbl-settings-btn';
         btn.innerHTML = GEAR_SVG;
-        btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); };
         btn.title = 'Settings';
+        btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); });
         container.appendChild(btn);
 
         let itemsHtml = '';
         const ids = { imdb: data.ids?.imdb||data.imdbid, tmdb: data.ids?.tmdb||data.id, trakt: data.ids?.trakt||data.traktid, mal: data.ids?.mal, anilist: data.ids?.anilist };
-        
         let masterSum = 0, masterCount = 0;
 
         const processRating = (key, rawVal, url, count, name) => {
             if (rawVal === null || rawVal === undefined) return;
             const val = parseFloat(rawVal);
             if (isNaN(val)) return;
-            
-            // Original scaling
             const score = val * (SCALE[key] || 1);
-
             masterSum += score;
             masterCount++;
             itemsHtml += createRatingHtml(key, score, generateLink(key, ids, url, type, data.title), count, name);
@@ -336,7 +320,7 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
                 else if (s.includes('myanimelist')) processRating('myanimelist', v, u, c, 'MAL');
             });
 
-            // Master Rating (Force First via HTML, also -1 priority CSS acts as backup)
+            // Master Rating
             let masterHtml = '';
             if (masterCount > 0 && CFG.sources.master) {
                 const avg = masterSum / masterCount;
@@ -345,11 +329,12 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
             }
 
             const wrapper = document.createElement('span');
-            // Master first, then others
             wrapper.innerHTML = masterHtml + itemsHtml;
             container.appendChild(wrapper);
-            
             refreshDomElements();
+            
+            // FORCE POSITION CHECK AGAIN
+            updateEndsAt();
         } else {
              const err = document.createElement('span');
              err.className = 'mdbl-status-text';
@@ -423,10 +408,7 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
 
     function insertContainer(target, type, id, apiSource) {
         let next = target.nextElementSibling;
-        
-        if (next && next.id === 'mdbl-custom-ends') {
-            next = next.nextElementSibling;
-        }
+        if (next && next.id === 'mdbl-custom-ends') next = next.nextElementSibling;
 
         if (next && next.classList.contains('mdblist-rating-container')) {
             if (next.dataset.id === id) return;
@@ -437,6 +419,7 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
         container.className = 'mdblist-rating-container';
         container.dataset.id = id;
         
+        // Initial button placeholder
         const btn = document.createElement('div');
         btn.className = 'mdbl-rating-item mdbl-settings-btn';
         btn.innerHTML = GEAR_SVG;
@@ -457,7 +440,7 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
     scanAndProcessLinks();
 
     /* ==========================================================================
-       6. SETTINGS MENU (Header Drag Only)
+       6. SETTINGS MENU
     ========================================================================== */
     function initMenu() {
         if(document.getElementById('mdbl-panel')) return;
@@ -589,10 +572,9 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
              div.dataset.key = k;
              div.innerHTML = `<div class="mdbl-src-left"><span class="mdbl-drag-handle">::</span><img src="${LOGO[k]}" style="height:16px"><span class="name" style="font-size:13px;margin-left:8px">${LABEL[k]}</span></div><input type="checkbox" ${CFG.sources[k]?'checked':''}>`;
              
-             div.onmousedown = (e) => e.stopPropagation(); // Fix Panel Drag conflict
+             div.onmousedown = (e) => e.stopPropagation(); 
              div.querySelector('input').onchange = (e) => { CFG.sources[k] = e.target.checked; updateGlobalStyles(); };
              
-             // DRAG & DROP IMPLEMENTATION (MATCHING ORIGINAL REPO)
              div.addEventListener('dragstart', (e) => { dragSrc = div; e.dataTransfer.effectAllowed = 'move'; });
              div.addEventListener('dragover', (e) => {
                  e.preventDefault();
@@ -601,7 +583,7 @@ console.log('[Jellyfin Ratings] Loading v11.9.0...');
                      const srcI = all.indexOf(dragSrc), tgtI = all.indexOf(div);
                      list.insertBefore(dragSrc, srcI < tgtI ? div.nextSibling : div);
                      [...list.querySelectorAll('.mdbl-src-row')].forEach((r, i) => CFG.priorities[r.dataset.key] = i+1);
-                     updateGlobalStyles(); // Live preview
+                     updateGlobalStyles(); 
                  }
              });
              sList.appendChild(div);
