@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v11.16.2 — Fix Sort & CSS)
+// @name          Jellyfin Ratings (v11.16.3 — Ends At Fix)
 // @namespace     https://mdblist.com
-// @version       11.16.2
-// @description   Fixes the CSS structure so that drag-and-drop reordering actually affects the visual output (display: contents fix).
+// @version       11.16.3
+// @description   Fixes the CSS structure and moves 'Ends At' time inside the rating container before the settings icon.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] Loading v11.16.2...');
+console.log('[Jellyfin Ratings] Loading v11.16.3...');
 
 (function() {
     'use strict';
@@ -134,7 +134,7 @@ console.log('[Jellyfin Ratings] Loading v11.16.2...');
             .mdbl-settings-btn:hover { opacity: 1; }
             .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; }
             .mdbl-status-text { font-size: 11px; opacity: 0.8; margin-left: 5px; color: #ffeb3b; }
-            #customEndsAt { font-size: inherit; opacity: 0.9; cursor: default; margin-left: 10px; display: inline-block; padding: 2px 4px; vertical-align: middle; }
+            .mdbl-ends-at { font-size: 0.9em; opacity: 0.7; margin-right: 6px; cursor: default; white-space: nowrap; }
             .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { display: none !important; }
             /* VITAL FIX: display:contents lets the children participate in the flex parent's ordering */
             .mdbl-wrapper { display: contents; }
@@ -160,7 +160,7 @@ console.log('[Jellyfin Ratings] Loading v11.16.2...');
 
     function refreshDomElements() {
         updateGlobalStyles();
-        document.querySelectorAll('.mdbl-rating-item:not(.mdbl-settings-btn)').forEach(el => {
+        document.querySelectorAll('.mdbl-rating-item:not(.mdbl-settings-btn):not(.mdbl-ends-at)').forEach(el => {
             const score = parseFloat(el.dataset.score);
             if (isNaN(score)) return;
             const color = getRatingColor(CFG.display.colorBands, CFG.display.colorChoice, score);
@@ -169,7 +169,7 @@ console.log('[Jellyfin Ratings] Loading v11.16.2...');
             span.style.color = CFG.display.colorNumbers ? color : '';
             span.textContent = CFG.display.showPercentSymbol ? `${Math.round(score)}%` : `${Math.round(score)}`;
         });
-        updateEndsAt();
+        hideNativeEndsAt();
     }
     updateGlobalStyles();
 
@@ -187,7 +187,7 @@ console.log('[Jellyfin Ratings] Loading v11.16.2...');
     }
 
     /* ==========================================================================
-       3. ENDS AT LOGIC
+       3. ENDS AT LOGIC (REFACTORED)
     ========================================================================== */
     function formatTime(minutes) {
         const d = new Date(Date.now() + minutes * 60000);
@@ -208,7 +208,24 @@ console.log('[Jellyfin Ratings] Loading v11.16.2...');
         return 0;
     }
 
-    function updateEndsAt() {
+    function getRuntimeFromPage(primary) {
+        if (!primary) return 0;
+        const detailContainer = primary.closest('.detailRibbon') || primary.closest('.mainDetailButtons') || primary.parentNode;
+        if (detailContainer) {
+            const walker = document.createTreeWalker(detailContainer, NodeFilter.SHOW_TEXT, null, false);
+            let node;
+            while ((node = walker.nextNode())) {
+                const val = node.nodeValue.trim();
+                if (val.length > 0 && val.length < 20 && /\d/.test(val)) {
+                    const p = parseRuntimeToMinutes(val);
+                    if (p > 0) return p;
+                }
+            }
+        }
+        return 0;
+    }
+
+    function hideNativeEndsAt() {
         const allWrappers = document.querySelectorAll('.itemMiscInfo');
         let primary = null;
         for (const el of allWrappers) {
@@ -222,60 +239,18 @@ console.log('[Jellyfin Ratings] Loading v11.16.2...');
         });
 
         if (!primary) return;
-
-        let minutes = 0;
-        const detailContainer = primary.closest('.detailRibbon') || primary.closest('.mainDetailButtons') || primary.parentNode;
-        if (detailContainer) {
-            const walker = document.createTreeWalker(detailContainer, NodeFilter.SHOW_TEXT, null, false);
-            let node;
-            while ((node = walker.nextNode())) {
-                const val = node.nodeValue.trim();
-                if (val.length > 0 && val.length < 20 && /\d/.test(val)) {
-                    const p = parseRuntimeToMinutes(val);
-                    if (p > 0) { minutes = p; break; }
-                }
-            }
-        }
-
         const parent = primary.parentNode;
         if (parent) {
             parent.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
-                if (el.id === 'customEndsAt') return;
+                // Ensure we don't hide our own stuff
                 if (el.classList.contains('mdblist-rating-container') || el.closest('.mdblist-rating-container')) return;
                 if (el.classList.contains('mediaInfoOfficialRating')) return;
+                
                 const t = (el.textContent || '').toLowerCase();
                 if (t.includes('ends at') || t.includes('endet um') || t.includes('endet am')) {
-                      el.style.display = 'none';
+                    el.style.display = 'none';
                 }
             });
-        }
-
-        let span = document.getElementById('customEndsAt');
-        const officialRating = document.querySelector('.mediaInfoOfficialRating');
-
-        if (minutes > 0) {
-            const timeStr = formatTime(minutes);
-            if (!span) {
-                span = document.createElement('div');
-                span.id = 'customEndsAt';
-            }
-            span.textContent = `Ends at ${timeStr}`;
-            span.style.display = '';
-
-            if (officialRating && officialRating.parentNode) {
-                officialRating.insertAdjacentElement('afterend', span);
-            } else {
-                 if(!primary.contains(span)) primary.appendChild(span);
-            }
-        } else {
-            if(span) span.style.display = 'none';
-        }
-
-        const rc = document.querySelector('.mdblist-rating-container');
-        if (rc && span && span.parentNode) {
-            span.insertAdjacentElement('afterend', rc);
-        } else if (rc && officialRating) {
-            officialRating.insertAdjacentElement('afterend', rc);
         }
     }
 
@@ -317,7 +292,18 @@ console.log('[Jellyfin Ratings] Loading v11.16.2...');
 
     function renderRatings(container, data, type) {
         container.innerHTML = '';
+        
+        // 1. Calculate and Insert "Ends At" Time FIRST
+        const runtimeMins = getRuntimeFromPage(container);
+        if (runtimeMins > 0) {
+            const timeStr = formatTime(runtimeMins);
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'mdbl-rating-item mdbl-ends-at';
+            timeDiv.textContent = `Ends at ${timeStr}`;
+            container.appendChild(timeDiv);
+        }
 
+        // 2. Insert Settings Gear
         const btn = document.createElement('div');
         btn.className = 'mdbl-rating-item mdbl-settings-btn';
         btn.innerHTML = GEAR_SVG;
@@ -410,7 +396,7 @@ console.log('[Jellyfin Ratings] Loading v11.16.2...');
        5. ENGINE (Loop)
     ========================================================================== */
     function scanAndProcessLinks() {
-        updateEndsAt();
+        hideNativeEndsAt(); // Only hides native, does NOT insert custom element anymore
 
         document.querySelectorAll('.starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating').forEach(el => el.style.display = 'none');
 
@@ -448,9 +434,11 @@ console.log('[Jellyfin Ratings] Loading v11.16.2...');
     }
 
     function insertContainer(target, type, id, apiSource) {
+        // Clean up any old external customEndsAt if it still exists from previous versions
         let next = target.nextElementSibling;
         if (next && next.id === 'customEndsAt') {
-            next = next.nextElementSibling;
+            next.remove(); 
+            next = target.nextElementSibling;
         }
 
         if (next && next.classList.contains('mdblist-rating-container')) {
@@ -462,19 +450,9 @@ console.log('[Jellyfin Ratings] Loading v11.16.2...');
         container.className = 'mdblist-rating-container';
         container.dataset.id = id;
 
-        const btn = document.createElement('div');
-        btn.className = 'mdbl-rating-item mdbl-settings-btn';
-        btn.innerHTML = GEAR_SVG;
-        btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); };
-        container.appendChild(btn);
+        // Note: The content (EndsAt, Gear, Ratings) is populated in renderRatings
 
-        const endsAtDiv = document.getElementById('customEndsAt');
-        if (endsAtDiv && endsAtDiv.previousElementSibling === target) {
-            endsAtDiv.insertAdjacentElement('afterend', container);
-        } else {
-            target.insertAdjacentElement('afterend', container);
-        }
-
+        target.insertAdjacentElement('afterend', container);
         fetchRatings(type, id, container, apiSource);
     }
 
