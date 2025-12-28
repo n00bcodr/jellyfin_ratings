@@ -123,19 +123,20 @@ console.log('[Jellyfin Ratings] Loading v11.16.4...');
     document.head.appendChild(styleEl);
 
     function updateGlobalStyles() {
+        // Reduced margins below from 10px to 5px/4px as requested
         let rules = `
-            .mdblist-rating-container { display: inline-flex; align-items: center; justify-content: flex-start; margin-left: 10px; margin-top: ${parseInt(CFG.spacing.ratingsTopGapPx)||0}px; vertical-align: middle; flex-wrap: wrap; }
+            .mdblist-rating-container { display: inline-flex; align-items: center; justify-content: flex-start; margin-left: 5px; margin-top: ${parseInt(CFG.spacing.ratingsTopGapPx)||0}px; vertical-align: middle; flex-wrap: wrap; }
             .mdbl-rating-item { display: inline-flex; align-items: center; margin: 0 4px; text-decoration: none; cursor: pointer; color: inherit; padding: 2px 4px; border-radius: 6px; }
             .mdbl-inner { display: flex; align-items: center; gap: 5px; pointer-events: none; }
             .mdbl-rating-item:hover { background: rgba(255,255,255,0.08); }
             .mdbl-rating-item img { height: 1.4em; vertical-align: middle; }
             .mdbl-rating-item span { font-size: 1em; vertical-align: middle; font-weight: 500; }
-            .mdbl-settings-btn { opacity: 0.6; margin-right: 10px; padding: 4px; cursor: pointer; display: inline-flex; vertical-align: middle; order: -9999 !important; }
+            .mdbl-settings-btn { opacity: 0.6; margin-right: 4px; padding: 4px; cursor: pointer; display: inline-flex; vertical-align: middle; order: -9999 !important; }
             .mdbl-settings-btn:hover { opacity: 1; }
             .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; }
             .mdbl-status-text { font-size: 11px; opacity: 0.8; margin-left: 5px; color: #ffeb3b; }
             /* Adjusted Font and Spacing below */
-            .mdbl-ends-at { font-size: 1em; font-weight: 500; margin-right: 10px; cursor: default; white-space: nowrap; }
+            .mdbl-ends-at { font-size: 1em; font-weight: 500; margin-right: 4px; cursor: default; white-space: nowrap; }
             
             .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { display: none !important; }
             /* VITAL FIX: display:contents lets the children participate in the flex parent's ordering */
@@ -561,7 +562,6 @@ console.log('[Jellyfin Ratings] Loading v11.16.4...');
             <div class="mdbl-subtle">Display</div>
             ${row('Color numbers', `<input type="checkbox" id="d_cnum" ${CFG.display.colorNumbers?'checked':''}>`)}
             ${row('Show %', `<input type="checkbox" id="d_pct" ${CFG.display.showPercentSymbol?'checked':''}>`)}
-            <div class="mdbl-row"><span>Episode Source</span><select id="d_ep_strat" class="mdbl-select" style="width:160px"><option value="series" ${CFG.display.episodeStrategy==='series'?'selected':''}>Series (Stable)</option><option value="episode" ${CFG.display.episodeStrategy==='episode'?'selected':''}>Episode (Individual)</option></select></div>
             <hr><div class="mdbl-subtle">Colors</div><div class="mdbl-grid">
             ${createRow('th_red','Rating',CFG.display.colorBands.redMax,'red')}
             ${createRow('th_orange','Rating',CFG.display.colorBands.orangeMax,'orange')}
@@ -579,7 +579,7 @@ console.log('[Jellyfin Ratings] Loading v11.16.4...');
         const update = () => {
             CFG.display.colorNumbers = panel.querySelector('#d_cnum').checked;
             CFG.display.showPercentSymbol = panel.querySelector('#d_pct').checked;
-            CFG.display.episodeStrategy = panel.querySelector('#d_ep_strat').value;
+            // Removed episodeStrategy update
             CFG.display.colorBands.redMax = parseInt(panel.querySelector('#th_red').value)||50;
             CFG.display.colorBands.orangeMax = parseInt(panel.querySelector('#th_orange').value)||69;
             CFG.display.colorBands.ygMax = parseInt(panel.querySelector('#th_yg').value)||79;
