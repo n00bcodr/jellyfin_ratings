@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v10.5.0 — Fix & Episode Toggle)
+// @name          Jellyfin Ratings (v10.6.0 — Stable & Toggle)
 // @namespace     https://mdblist.com
-// @version       10.5.0
-// @description   Displays ratings from multiple sources with a settings panel. Fixes API errors and includes Series/Episode toggle.
+// @version       10.6.0
+// @description   Displays ratings from multiple sources with a settings panel. Based on robust logic from community scripts.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] Loading v10.5.0...');
+console.log('[Jellyfin Ratings] Loading v10.6.0...');
 
 /* ==========================================================================
    1. CONFIGURATION & CONSTANTS
@@ -34,7 +34,7 @@ const DEFAULTS = {
         colorBands: { redMax: 50, orangeMax: 69, ygMax: 79 },
         colorChoice: { red: 0, orange: 2, yg: 3, mg: 0 },
         endsAt24h: true,
-        episodeStrategy: 'series' // 'series' (default) or 'episode'
+        episodeStrategy: 'series' // 'series' (Standard) or 'episode'
     },
     spacing: { ratingsTopGapPx: 0 },
     priorities: {
@@ -219,7 +219,6 @@ function updateEndsAt() {
         if (el.offsetParent !== null) { primary = el; break; }
     }
 
-    // Hide default ratings
     document.querySelectorAll('.starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating').forEach(el => {
         el.style.display = 'none';
         el.style.visibility = 'hidden';
@@ -241,7 +240,6 @@ function updateEndsAt() {
         }
     }
 
-    // Hide original "Ends at" text if present
     const parent = primary.parentNode;
     if (parent) {
         parent.querySelectorAll('.itemMiscInfo-secondary, .itemMiscInfo span, .itemMiscInfo div').forEach(el => {
@@ -485,10 +483,8 @@ function fetchRatings(container, id, type, apiMode) {
 function scan() {
     updateEndsAt();
 
-    // 1. Scan for TMDB links (most reliable source in Jellyfin)
-    // Matches patterns like /tv/123, /movie/456
-    // IMPORTANT: regex matches the START of the path, effectively stripping /season/.. etc
-    // This replicates the stability of ratings-other-user.js
+    // 1. Scan for TMDB links using robust regex from community script
+    // Matches /tv/123 or /movie/456 regardless of what follows (ignoring /season/...)
     const tmdbLinks = document.querySelectorAll('a[href*="themoviedb.org/"]:not([data-mdbl-processed])');
     
     tmdbLinks.forEach(link => {
@@ -505,14 +501,11 @@ function scan() {
             if (rawType === 'tv' && isEpisodeLink) {
                 // === EPISODE LOGIC ===
                 if (CFG.display.episodeStrategy === 'episode') {
-                    // Strategy: Specific Episode Rating
-                    // Try to find a sibling IMDb link for the specific episode (Jellyfin usually provides one)
-                    // We look in the surrounding container.
+                    // Try to find a sibling IMDb link for the specific episode
                     const parent = link.closest('.itemMiscInfo') || link.closest('.mainDetailButtons') || link.parentNode.parentNode;
                     let imdbEpisodeId = null;
                     
                     if (parent) {
-                        // Find any link to imdb /title/tt...
                         const imdbLink = parent.querySelector('a[href*="imdb.com/title/tt"]');
                         if (imdbLink) {
                             const im = imdbLink.href.match(/tt\d+/);
@@ -521,15 +514,14 @@ function scan() {
                     }
                     
                     if (imdbEpisodeId) {
-                        // Fetch specific episode using IMDb ID (treated as 'movie' type in MDBList usually)
+                        // Fetch specific episode using IMDb ID
                         injectContainer(imdbEpisodeId, 'movie', 'imdb'); 
                     } else {
-                        // Fallback to Series rating if specific IMDb ID not found
+                        // FALLBACK to Series rating if no specific episode ID found (Prevents API Error)
                         injectContainer(rawId, 'show', 'tmdb');
                     }
                 } else {
-                    // Strategy: Series Rating (Default/Robust)
-                    // Just use the Show ID we extracted
+                    // Strategy: Series Rating (Standard) - uses Show ID
                     injectContainer(rawId, 'show', 'tmdb');
                 }
             } else {
@@ -546,7 +538,6 @@ function scan() {
         link.dataset.mdblProcessed = "true";
         const m = link.href.match(/tt\d+/);
         if (m) {
-            // Only inject if not already done by TMDB logic
             injectContainer(m[0], 'movie', 'imdb');
         }
     });
@@ -559,7 +550,7 @@ function injectContainer(id, type, apiMode) {
     let parent = (target && target.offsetParent !== null) ? target.parentNode : null;
 
     if (!parent) {
-        // 2. Try looking for runtime text (e.g. "45 min") - extremely common on episode pages
+        // 2. Try looking for runtime text (e.g. "45 min") - common on episode pages
         const allWrappers = document.querySelectorAll('.itemMiscInfo, .mediaInfoItem');
         for (const el of allWrappers) {
              if (el.innerText && /^\d+\s*(?:h(?:ours?)?)?\s*\d*\s*m(?:inutes?)?$/i.test(el.innerText.trim())) {
