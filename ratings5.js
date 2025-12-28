@@ -1,18 +1,18 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v11.1.0 — Best of Both)
+// @name          Jellyfin Ratings (v11.2.0 — Stable Fusion)
 // @namespace     https://mdblist.com
-// @version       11.1.0
-// @description   Combines the working engine of ratings-other-user.js with the full feature set (Settings, Master Rating, etc).
+// @version       11.2.0
+// @description   Combines the working engine of ratings-other-user.js with your custom features (Settings, Master Rating, Scale 100, etc).
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] Loading v11.1.0...');
+console.log('[Jellyfin Ratings] Loading v11.2.0...');
 
 (function() {
     'use strict';
 
     /* ==========================================================================
-       1. CONFIGURATION & CONSTANTS
+       1. CONFIG & CONSTANTS (Your Features)
     ========================================================================== */
     const NS = 'mdbl_';
     const API_BASE = 'https://api.mdblist.com';
@@ -46,6 +46,7 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
         }
     };
 
+    // Scaling Factors (Your request: 1-100 scale)
     const SCALE = {
         master: 1, imdb: 10, tmdb: 10, trakt: 1, letterboxd: 20, roger_ebert: 25,
         metacritic_critic: 1, metacritic_user: 10, myanimelist: 10, anilist: 1,
@@ -116,37 +117,34 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
     const localSlug = t => (t || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
     /* ==========================================================================
-       2. STYLES & ASSETS
+       2. STYLES
     ========================================================================== */
     const styleEl = document.createElement('style');
-    styleEl.textContent = `
-        .mdblist-rating-container { display: inline-flex; align-items: center; justify-content: flex-start; margin-left: 12px; margin-top: ${parseInt(CFG.spacing.ratingsTopGapPx)||0}px; z-index: 2000; position: relative; pointer-events: auto !important; vertical-align: middle; }
-        .mdbl-rating-item { display: inline-flex; align-items: center; margin: 0 3px; text-decoration: none; cursor: pointer; color: inherit; padding: 4px; border-radius: 6px; }
-        .mdbl-inner { display: flex; align-items: center; gap: 6px; pointer-events: none; }
-        .mdbl-rating-item:hover { background: rgba(255,255,255,0.08); }
-        .mdbl-rating-item img { height: 1.3em; vertical-align: middle; }
-        .mdbl-rating-item span { font-size: 1em; vertical-align: middle; }
-        .mdbl-rating-item[data-title]:hover::after { content: attr(data-title); position: absolute; bottom: 125%; left: 50%; transform: translateX(-50%); background: rgba(15, 15, 18, 0.98); border: 1px solid rgba(255,255,255,0.15); color: #eaeaea; padding: 8px 12px; border-radius: 8px; font-size: 14px; font-family: sans-serif; font-weight: 500; white-space: nowrap; z-index: 999999; pointer-events: none; box-shadow: 0 4px 14px rgba(0,0,0,0.75); backdrop-filter: blur(4px); }
-        .mdbl-rating-item:nth-last-child(-n+2)[data-title]:hover::after { left: auto; right: -5px; transform: none; }
-        .mdbl-settings-btn { opacity: 0.6; margin-right: 12px; padding: 4px; cursor: pointer; display: inline-flex; justify-content: center; position: relative; }
-        .mdbl-settings-btn:hover { opacity: 1; }
-        .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; }
-        .mdbl-settings-btn::after { content: ''; position: absolute; right: -6px; top: 50%; transform: translateY(-50%); width: 1px; height: 14px; background: rgba(255, 255, 255, 0.2); pointer-events: none; }
-        .mdbl-status-text { font-size: 11px; opacity: 0.8; margin-left: 5px; color: #ffeb3b; font-family: monospace; }
-        .itemMiscInfo, .mainDetailRibbon, .detailRibbon { overflow: visible !important; contain: none !important; position: relative; z-index: 10; }
-        #customEndsAt { font-size: inherit; opacity: 0.9; cursor: default; margin-left: 10px; display: inline-block; padding: 2px 4px; vertical-align: middle; }
-        .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { display: none !important; opacity: 0 !important; visibility: hidden !important; width: 0 !important; height: 0 !important; overflow: hidden !important; }
-    `;
+    styleEl.id = 'mdbl-dynamic-styles';
     document.head.appendChild(styleEl);
 
     function updateGlobalStyles() {
-        let rules = styleEl.textContent.split('/* DYNAMIC */')[0] + '/* DYNAMIC */';
+        let rules = `
+            .mdblist-rating-container { display: inline-flex; align-items: center; justify-content: flex-start; margin-left: 10px; margin-top: ${parseInt(CFG.spacing.ratingsTopGapPx)||0}px; vertical-align: middle; }
+            .mdbl-rating-item { display: inline-flex; align-items: center; margin: 0 4px; text-decoration: none; cursor: pointer; color: inherit; padding: 2px 4px; border-radius: 6px; }
+            .mdbl-inner { display: flex; align-items: center; gap: 5px; pointer-events: none; }
+            .mdbl-rating-item:hover { background: rgba(255,255,255,0.08); }
+            .mdbl-rating-item img { height: 1.4em; vertical-align: middle; }
+            .mdbl-rating-item span { font-size: 1em; vertical-align: middle; }
+            .mdbl-settings-btn { opacity: 0.6; margin-right: 8px; padding: 4px; cursor: pointer; display: inline-flex; vertical-align: middle; }
+            .mdbl-settings-btn:hover { opacity: 1; }
+            .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; }
+            .mdbl-status-text { font-size: 11px; opacity: 0.8; margin-left: 5px; color: #ffeb3b; }
+            #mdbl-custom-ends { display: inline-block; margin-left: 10px; opacity: 0.9; vertical-align: middle; font-size: inherit; }
+            /* Hide original ratings only */
+            .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { display: none !important; }
+        `;
+        // Dynamic order
         Object.keys(CFG.priorities).forEach(key => {
             const isEnabled = CFG.sources[key];
             const order = CFG.priorities[key];
             rules += `.mdbl-rating-item[data-source="${key}"] { display: ${isEnabled ? 'inline-flex' : 'none'}; order: ${order}; }`;
         });
-        // We re-append to update
         styleEl.textContent = rules;
     }
 
@@ -169,8 +167,8 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
             span.style.color = CFG.display.colorNumbers ? color : '';
             span.textContent = CFG.display.showPercentSymbol ? `${Math.round(score)}%` : `${Math.round(score)}`;
         });
-        updateEndsAt();
     }
+    updateGlobalStyles();
 
     /* ==========================================================================
        3. ENDS AT LOGIC
@@ -180,69 +178,38 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
         const opts = CFG.display.endsAt24h ? { hour: '2-digit', minute: '2-digit', hour12: false } : { hour: 'numeric', minute: '2-digit', hour12: true };
         return d.toLocaleTimeString([], opts);
     }
-    
-    function updateEndsAt() {
-        const primary = document.querySelector('.itemMiscInfo') || document.querySelector('.mediaInfoItem');
-        if (!primary) return;
-        
-        let minutes = 0;
-        const detailContainer = primary.closest('.detailRibbon') || primary.closest('.mainDetailButtons') || primary.parentNode;
-        if (detailContainer) {
-            const walker = document.createTreeWalker(detailContainer, NodeFilter.SHOW_TEXT, null, false);
-            let node;
-            while ((node = walker.nextNode())) {
-                const val = node.nodeValue.trim();
-                const m = val.match(/(?:(\d+)\s*(?:h|hr|std?)\w*\s*)?(?:(\d+)\s*(?:m|min)\w*)?/i);
-                // Also matches just number '45 min'
-                if (val.length < 20 && /\d/.test(val) && (val.includes('m') || val.includes('h'))) {
-                    let h = 0, min = 0;
-                    if (m && (m[1] || m[2])) {
-                        h = parseInt(m[1]||0);
-                        min = parseInt(m[2]||0);
-                    } else if (val.match(/(\d+)\s*m/)) {
-                        min = parseInt(val.match(/(\d+)\s*m/)[1]);
-                    }
-                    if (h > 0 || min > 0) { minutes = h*60 + min; break; }
-                }
-            }
-        }
-        
-        // Hide default Ends At
-        if(primary.parentNode) {
-            primary.parentNode.querySelectorAll('div, span').forEach(el => {
-                if(el.id==='customEndsAt' || el.classList.contains('mdblist-rating-container')) return;
-                if((el.textContent||'').toLowerCase().includes('ends at') || (el.textContent||'').toLowerCase().includes('endet')) el.style.display = 'none';
-            });
-        }
 
-        let span = document.getElementById('customEndsAt');
-        const offRating = document.querySelector('.mediaInfoOfficialRating');
+    // Helper to calculate minutes from text like "1 h 30 min" or "45 m"
+    function parseRuntimeToMinutes(text) {
+        if (!text) return 0;
+        let h = 0, m = 0;
+        const regexH = /(\d+)\s*(?:h|hr|std)/i;
+        const regexM = /(\d+)\s*(?:m|min)/i;
         
-        if (minutes > 0) {
-            if (!span) { span = document.createElement('div'); span.id = 'customEndsAt'; }
-            span.textContent = `Ends at ${formatTime(minutes)}`;
-            span.style.display = '';
-            
-            // Insert EndsAt BEFORE ratings
-            if (offRating && offRating.parentNode) offRating.insertAdjacentElement('afterend', span);
-            else if (primary.parentNode) primary.parentNode.insertBefore(span, primary.nextSibling);
-            
-            // Ensure ratings container is AFTER EndsAt
-            const rc = document.querySelector('.mdblist-rating-container');
-            if (rc && span.nextSibling !== rc) span.insertAdjacentElement('afterend', rc);
-        } else {
-            if (span) span.style.display = 'none';
+        let matchH = text.match(regexH);
+        if (matchH) h = parseInt(matchH[1]);
+        
+        let matchM = text.match(regexM);
+        if (matchM) m = parseInt(matchM[1]);
+        
+        // Sometimes just a number? ratings-other-user checked for digits+min
+        if (h === 0 && m === 0) {
+            // Fallback simplistic check
+            if (/^\d+\s*m$/i.test(text.trim())) m = parseInt(text);
         }
+        
+        return h * 60 + m;
     }
 
     /* ==========================================================================
-       4. LINK & RENDER LOGIC
+       4. FETCH & RENDER (Your Features)
     ========================================================================== */
     function generateLink(key, ids, apiLink, type, title) {
         const sLink = String(apiLink || '');
         const safeTitle = encodeURIComponent(title || '');
         const safeType = (type === 'show' || type === 'tv') ? 'tv' : 'movie';
         if (sLink.startsWith('http') && key !== 'metacritic_user' && key !== 'roger_ebert') return sLink;
+
         switch(key) {
             case 'imdb': return ids.imdb ? `https://www.imdb.com/title/${ids.imdb}/` : '#';
             case 'tmdb': return ids.tmdb ? `https://www.themoviedb.org/${safeType}/${ids.tmdb}` : '#';
@@ -251,7 +218,7 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
             case 'metacritic_critic':
             case 'metacritic_user':
                  if (sLink.startsWith('/')) return `https://www.metacritic.com${sLink}`;
-                 return slug ? `https://www.metacritic.com/${safeType}/${localSlug(title)}` : '#';
+                 return `https://www.metacritic.com/${safeType}/${localSlug(title)}`;
             case 'rotten_tomatoes_critic':
             case 'rotten_tomatoes_audience': return sLink.length > 2 ? `https://www.rottentomatoes.com/m/${sLink}` : '#';
             case 'anilist': return ids.anilist ? `https://anilist.co/anime/${ids.anilist}` : `https://anilist.co/search/anime?search=${safeTitle}`;
@@ -272,11 +239,13 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
     }
 
     function renderRatings(container, data, type) {
-        // Clear except settings btn
         const btn = container.querySelector('.mdbl-settings-btn');
         container.innerHTML = '';
-        if(btn) { container.appendChild(btn); btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); }; }
-        
+        if(btn) { 
+            container.appendChild(btn); 
+            btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); }; 
+        }
+
         let html = '';
         const ids = { imdb: data.ids?.imdb||data.imdbid, tmdb: data.ids?.tmdb||data.id, trakt: data.ids?.trakt||data.traktid, mal: data.ids?.mal, anilist: data.ids?.anilist };
         
@@ -312,9 +281,10 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
                 else if (s.includes('anilist')) { add('anilist', v, apiLink, c, 'AniList', 'Votes'); trackMaster(v, 'anilist'); }
                 else if (s.includes('myanimelist')) { add('myanimelist', v, apiLink, c, 'MAL', 'Votes'); trackMaster(v, 'myanimelist'); }
             });
-            
-            if (masterCount > 0) {
-                html += createRatingHtml('master', masterSum/masterCount, `https://duckduckgo.com/?q=${encodeURIComponent(data.title)}`, masterCount, 'Master Rating', 'Sources');
+
+            if (masterCount > 0 && CFG.sources.master) {
+                const wikiUrl = `https://duckduckgo.com/?q=!ducky+site:en.wikipedia.org+${encodeURIComponent(data.title)}+${(data.year||'')}`;
+                html += createRatingHtml('master', masterSum/masterCount, wikiUrl, masterCount, 'Master Rating', 'Avg');
             }
             const sp = document.createElement('span');
             sp.innerHTML = html;
@@ -329,7 +299,7 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
         }
     }
 
-    function fetchRatings(container, id, type, apiSource) {
+    function fetchRatings(type, id, container, apiSource) {
         let url;
         if (apiSource === 'imdb') url = `${API_BASE}/imdb/${id}?apikey=${API_KEY}`;
         else url = `${API_BASE}/tmdb/${type}/${id}?apikey=${API_KEY}`;
@@ -344,6 +314,7 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
         } catch(e) {}
         
         const st = document.createElement('span'); st.className = 'mdbl-status-text'; st.textContent = '...'; container.appendChild(st);
+        
         fetch(url).then(r=>r.json()).then(d => {
             st.remove();
             localStorage.setItem(cacheKey, JSON.stringify({ts:Date.now(), data:d}));
@@ -352,20 +323,17 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
     }
 
     /* ==========================================================================
-       5. ENGINE (From ratings-other-user.js)
+       5. MAIN ENGINE (Based on ratings-other-user.js)
     ========================================================================== */
     function scanAndProcessLinks() {
-        updateEndsAt();
-        document.querySelectorAll(
-            'div.starRatingContainer.mediaInfoItem,' +
-            'div.mediaInfoItem.mediaInfoCriticRating.mediaInfoCriticRatingFresh,' +
-            'div.mediaInfoItem.mediaInfoCriticRating.mediaInfoCriticRatingRotten'
-        ).forEach(el => el.style.display = 'none');
+        // Original ratings hiding
+        document.querySelectorAll('.starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating').forEach(el => el.style.display = 'none');
 
         document.querySelectorAll('a[href*="themoviedb.org/"]').forEach(link => {
             if (link.dataset.mdblProcessed) return;
             link.dataset.mdblProcessed = "true";
             
+            // Extract TMDB ID
             const m = link.href.match(/themoviedb\.org\/(movie|tv)\/(\d+)/);
             if (!m) return;
             
@@ -373,6 +341,7 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
             let id = m[2];
             let apiSource = 'tmdb';
 
+            // Episode Logic
             const isEpisode = link.href.includes('/season/') || link.href.includes('/episode/');
             if (type === 'show' && isEpisode && CFG.display.episodeStrategy === 'episode') {
                 const parent = link.closest('.itemMiscInfo') || link.closest('.mainDetailButtons') || link.parentNode.parentNode;
@@ -380,25 +349,55 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
                     const imdbLink = parent.querySelector('a[href*="imdb.com/title/tt"]');
                     if (imdbLink) {
                         const mImdb = imdbLink.href.match(/tt\d+/);
-                        if (mImdb) { id = mImdb[0]; type = 'movie'; apiSource = 'imdb'; } // Fetch episode as movie via imdb
+                        if (mImdb) { id = mImdb[0]; type = 'movie'; apiSource = 'imdb'; }
                     }
                 }
-                // Fallback: If no IMDb, keep 'show' and 'tmdb' (Series rating) -> NO ERROR
+                // No IMDb? Keep Series ID (Safe Fallback)
             }
 
+            // Insertion Targets: 1. Official Rating, 2. Runtime
             const officialEls = document.querySelectorAll('div.mediaInfoItem.mediaInfoText.mediaInfoOfficialRating');
-            if (officialEls.length) officialEls.forEach(el => insertContainer(el, type, id, apiSource));
-            else {
+            if (officialEls.length) {
+                officialEls.forEach(el => insertContainer(el, type, id, apiSource));
+            } else {
                 document.querySelectorAll('div.mediaInfoItem').forEach(el => {
-                    if (/^\d+\s*(?:h(?:ours?)?)?\s*\d*\s*m(?:inutes?)?$/i.test(el.textContent.trim())) insertContainer(el, type, id, apiSource);
+                    if (/^\d+\s*(?:h(?:ours?)?)?\s*\d*\s*m(?:inutes?)?$/i.test(el.textContent.trim())) {
+                        insertContainer(el, type, id, apiSource);
+                    }
                 });
             }
         });
     }
 
     function insertContainer(target, type, id, apiSource) {
-        // Check for existing sibling
-        const next = target.nextElementSibling;
+        // Ends At Calculation
+        let runtimeMinutes = parseRuntimeToMinutes(target.textContent);
+        if (runtimeMinutes === 0 && target.parentNode) {
+            // Try to find runtime text in siblings
+            const sib = target.parentNode.textContent;
+            runtimeMinutes = parseRuntimeToMinutes(sib);
+        }
+        
+        let endsAtDiv = document.getElementById('mdbl-custom-ends');
+        if (runtimeMinutes > 0) {
+            if (!endsAtDiv) {
+                endsAtDiv = document.createElement('div');
+                endsAtDiv.id = 'mdbl-custom-ends';
+                // Insert Ends At immediately after the Target (e.g. Runtime)
+                target.insertAdjacentElement('afterend', endsAtDiv);
+            } else if (endsAtDiv.nextSibling !== target.nextSibling) {
+                 // Reposition if needed
+                 target.insertAdjacentElement('afterend', endsAtDiv);
+            }
+            endsAtDiv.textContent = `Ends at ${formatTime(runtimeMinutes)}`;
+        }
+
+        // Insertion Point for Ratings
+        // If endsAtDiv exists, put ratings after IT. Else after target.
+        const insertAnchor = endsAtDiv || target;
+
+        // Check for existing ratings container
+        const next = insertAnchor.nextElementSibling;
         if (next && next.classList.contains('mdblist-rating-container')) {
             if (next.dataset.id === id) return;
             next.remove();
@@ -415,12 +414,8 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
         btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openSettingsMenu(); };
         container.appendChild(btn);
 
-        // Insertion Logic (Corrected for Ends At)
-        const endsAt = document.getElementById('customEndsAt');
-        if (endsAt && endsAt.parentNode === target.parentNode) endsAt.insertAdjacentElement('afterend', container);
-        else target.insertAdjacentElement('afterend', container);
-
-        fetchRatings(container, id, type, apiSource);
+        insertAnchor.insertAdjacentElement('afterend', container);
+        fetchRatings(type, id, container, apiSource);
     }
 
     setInterval(scanAndProcessLinks, 1000);
@@ -469,7 +464,6 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
         const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style);
         const panel = document.createElement('div'); panel.id = 'mdbl-panel'; document.body.appendChild(panel);
         
-        // Drag
         let isDrag = false, sx, sy, lx, ly;
         panel.addEventListener('mousedown', (e) => { if(window.innerWidth<=600||['INPUT','SELECT','BUTTON'].includes(e.target.tagName)||e.target.closest('.sec'))return; isDrag=true; const r=panel.getBoundingClientRect(); lx=r.left; ly=r.top; sx=e.clientX; sy=e.clientY; panel.style.right='auto'; panel.style.bottom='auto'; panel.style.left=lx+'px'; panel.style.top=ly+'px'; });
         document.addEventListener('mousemove', (e) => { if(!isDrag)return; panel.style.left=(lx+(e.clientX-sx))+'px'; panel.style.top=(ly+(e.clientY-sy))+'px'; });
@@ -533,7 +527,6 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
         panel.querySelector('#mdbl-btn-save').onclick = () => { closeSettingsMenu(true); };
         panel.querySelector('#mdbl-btn-reset').onclick = () => { if(confirm('Reset?')) { localStorage.removeItem('mdbl_prefs'); location.reload(); }};
         
-        // Live Update Listeners
         const update = () => {
             CFG.display.colorNumbers = panel.querySelector('#d_cnum').checked;
             CFG.display.showPercentSymbol = panel.querySelector('#d_pct').checked;
@@ -547,7 +540,6 @@ console.log('[Jellyfin Ratings] Loading v11.1.0...');
         };
         panel.querySelectorAll('input, select').forEach(el => el.addEventListener(el.type==='checkbox'?'change':'input', update));
 
-        // Sources
         const sList = panel.querySelector('#mdbl-sources');
         let dragSrc = null;
         Object.keys(CFG.priorities).sort((a,b) => CFG.priorities[a]-CFG.priorities[b]).forEach(k => {
