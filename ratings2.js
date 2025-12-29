@@ -113,7 +113,7 @@ console.log('[Jellyfin Ratings] Loading v11.16.5.1...');
         try { localStorage.setItem(`${NS}prefs`, JSON.stringify(CFG)); } catch (e) {}
     }
 
-    const localSlug = t => (t || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const localSlug = t => (t || '').toLowerCase().replace(/'/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
     /* ==========================================================================
        2. STYLES
