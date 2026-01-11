@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v11.16.5 — Tooltips Added)
+// @name          Jellyfin Ratings (v11.16.5 — Tooltips Added) 
 // @namespace     https://mdblist.com
 // @version       11.16.5.1
 // @description   Fixes the CSS structure and places settings gear between time and ratings. Adds Tooltips.
