@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name          Jellyfin Ratings (v11.16.5 — Tooltips Added) 
+// @name          Jellyfin Ratings (v11.16.5 — Tooltips Added)
 // @namespace     https://mdblist.com
 // @version       11.16.5.1
 // @description   Fixes the CSS structure and places settings gear between time and ratings. Adds Tooltips.
@@ -66,7 +66,7 @@ console.log('[Jellyfin Ratings] Loading v11.16.5.1...');
         mg:     ['Emerald', 'Leaf Green', 'Forest', 'Mint']
     };
 
-    const ICON_BASE = 'https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/assets/icons';
+    const ICON_BASE = 'https://cdn.jsdelivr.net/gh/n00bcodr/jellyfin_ratings/assets/icons';
     const LOGO = {
         master: `${ICON_BASE}/master.png`, imdb: `${ICON_BASE}/imdb.png`, tmdb: `${ICON_BASE}/tmdb.png`,
         trakt: `${ICON_BASE}/trakt.png`, letterboxd: `${ICON_BASE}/letterboxd.png`, anilist: `${ICON_BASE}/anilist.png`,
@@ -130,16 +130,16 @@ console.log('[Jellyfin Ratings] Loading v11.16.5.1...');
             .mdbl-rating-item:hover { background: rgba(255,255,255,0.08); }
             .mdbl-rating-item img { height: 1.4em; vertical-align: middle; }
             .mdbl-rating-item span { font-size: 1em; vertical-align: middle; font-weight: 500; }
-            
+
             /* Gear Order: -5 ensures it is between Ends At (-10) and Ratings (-1 or 1+) */
             .mdbl-settings-btn { opacity: 0.6; margin-right: 4px; padding: 4px; cursor: pointer; display: inline-flex; vertical-align: middle; order: -5 !important; }
             .mdbl-settings-btn:hover { opacity: 1; }
             .mdbl-settings-btn svg { width: 1.2em; height: 1.2em; fill: currentColor; }
             .mdbl-status-text { font-size: 11px; opacity: 0.8; margin-left: 5px; color: #ffeb3b; }
-            
+
             /* Ends At Order: -10 ensures it is first */
             .mdbl-ends-at { font-size: 1em; font-weight: 500; margin-right: 4px; cursor: default; white-space: nowrap; order: -10; }
-            
+
             .starRatingContainer, .mediaInfoCriticRating, .mediaInfoAudienceRating, .starRating { display: none !important; }
             /* VITAL FIX: display:contents lets the children participate in the flex parent's ordering */
             .mdbl-wrapper { display: contents; }
@@ -250,7 +250,7 @@ console.log('[Jellyfin Ratings] Loading v11.16.5.1...');
                 // Ensure we don't hide our own stuff
                 if (el.classList.contains('mdblist-rating-container') || el.closest('.mdblist-rating-container')) return;
                 if (el.classList.contains('mediaInfoOfficialRating')) return;
-                
+
                 const t = (el.textContent || '').toLowerCase();
                 if (t.includes('ends at') || t.includes('endet um') || t.includes('endet am')) {
                     el.style.display = 'none';
@@ -290,23 +290,23 @@ console.log('[Jellyfin Ratings] Loading v11.16.5.1...');
         if (score === null) return '';
         if (!LOGO[key]) return '';
         const r = Math.round(score);
-        
+
         // Determine whether to show "Reviews" (Critic) or "Votes" (User)
         const isCritic = ['rotten_tomatoes_critic', 'metacritic_critic', 'roger_ebert'].includes(key);
         const suffix = key === 'master' ? 'Sources' : (isCritic ? 'Reviews' : 'Votes');
-        
+
         // Construct the tooltip string
         const tooltip = (count && count > 0) ? `${title} — ${count.toLocaleString()} ${suffix}` : title;
-        
+
         const style = (!link || link === '#') ? 'cursor:default;' : 'cursor:pointer;';
-        
+
         // Used 'title' attribute instead of 'data-title' to enable browser tooltip
         return `<a href="${link}" target="_blank" class="mdbl-rating-item" data-source="${key}" data-score="${r}" style="${style}" title="${tooltip}"><div class="mdbl-inner"><img src="${LOGO[key]}" alt="${title}"><span>${CFG.display.showPercentSymbol ? r+'%' : r}</span></div></a>`;
     }
 
     function renderRatings(container, data, type) {
         container.innerHTML = '';
-        
+
         // 1. Calculate and Insert "Ends At" Time FIRST
         const runtimeMins = getRuntimeFromPage(container);
         if (runtimeMins > 0) {
@@ -451,7 +451,7 @@ console.log('[Jellyfin Ratings] Loading v11.16.5.1...');
         // Clean up any old external customEndsAt if it still exists from previous versions
         let next = target.nextElementSibling;
         if (next && next.id === 'customEndsAt') {
-            next.remove(); 
+            next.remove();
             next = target.nextElementSibling;
         }
 

@@ -55,17 +55,17 @@
 
 const CONFIG = {
     // Toggle between development (true) and production/release (false)
-    isDevelopment: false, 
-    
+    isDevelopment: false,
+
     // Your API Key (REQUIRED)
     apiKey: 'YOUR-MDBLIST-API-KEY-HERE',
-    
+
     // Source URLs
     urls: {
-        dev: '[https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/ratings.js](https://raw.githubusercontent.com/xroguel1ke/jellyfin_ratings/refs/heads/main/ratings.js)',
-        prod: '[https://cdn.jsdelivr.net/gh/xroguel1ke/jellyfin_ratings@main/ratings.js](https://cdn.jsdelivr.net/gh/xroguel1ke/jellyfin_ratings@main/ratings.js)'
+        dev: 'https://raw.githubusercontent.com/n00bcodr/jellyfin_ratings/refs/heads/main/ratings.js',
+        prod: 'https://cdn.jsdelivr.net/gh/n00bcodr/jellyfin_ratings@main/ratings.js'
     },
-    
+
     // Resilience settings
     timeoutMs: 5000, // Abort fetch after 5 seconds
     maxRetries: 3    // Retry up to 3 times if network fails
@@ -94,10 +94,10 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 /* Main Loader Logic */
 (async () => {
-    let targetUrl = CONFIG.isDevelopment 
-        ? `${CONFIG.urls.dev}?t=${Date.now()}` 
+    let targetUrl = CONFIG.isDevelopment
+        ? `${CONFIG.urls.dev}?t=${Date.now()}`
         : CONFIG.urls.prod;
-        
+
     let attempts = 0;
     let success = false;
 
@@ -107,22 +107,22 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
         attempts++;
         try {
             if (attempts > 1) console.log(`[Jellyfin Ratings] Retry attempt ${attempts}/${CONFIG.maxRetries}...`);
-            
+
             const res = await fetchWithTimeout(targetUrl, { cache: 'no-store', mode: 'cors' });
-            
+
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            
+
             const code = await res.text();
-            
+
             // Execute synchronously
             try { new Function(code)(); } catch (e) { (0, eval)(code); }
-            
+
             console.log('[Jellyfin Ratings] Script loaded & executed successfully.');
             success = true;
 
         } catch (err) {
             console.warn(`[Jellyfin Ratings] Fetch failed (Attempt ${attempts}):`, err.message);
-            if (attempts < CONFIG.maxRetries) await sleep(1000); 
+            if (attempts < CONFIG.maxRetries) await sleep(1000);
         }
     }
 
