@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name          Jellyfin Ratings (v11.16.5 — Tooltips Added)
 // @namespace     https://mdblist.com
-// @version       11.16.5.1
+// @version       12.0.0.0
 // @description   Fixes the CSS structure and places settings gear between time and ratings. Adds Tooltips.
 // @match         *://*/*
 // ==/UserScript==
 
-console.log('[Jellyfin Ratings] Loading v11.16.5.1...');
+console.log('[Jellyfin Ratings] Loading v12.0.0.0...');
 
 (function() {
     'use strict';
