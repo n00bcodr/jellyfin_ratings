@@ -371,6 +371,7 @@ console.log('[Jellyfin Ratings] Loading v11.16.5.1...');
     function scanAndProcessLinks() {
 
         document.querySelectorAll('a[href*="themoviedb.org/"]').forEach(link => {
+            if (link.closest('.mdblist-rating-container')) return;
             if (link.dataset.mdblProcessed) return;
             link.dataset.mdblProcessed = "true";
 
@@ -404,26 +405,27 @@ console.log('[Jellyfin Ratings] Loading v11.16.5.1...');
     }
 
     function insertContainer(target, type, id, apiSource) {
-        // Clean up any old external customEndsAt if it still exists from previous versions
-        let next = target.nextElementSibling;
-        if (next && next.id === 'customEndsAt') {
-            next.remove();
-            next = target.nextElementSibling;
-        }
+        // Determine scope and external links area
+        const scope = target.closest('.detailRibbon') || target.closest('.mainDetailButtons') || target.closest('.itemMiscInfo') || target.parentNode;
+        const extLinks = (scope && scope.querySelector('.itemExternalLinks')) || document.querySelector('.itemExternalLinks');
 
-        if (next && next.classList.contains('mdblist-rating-container')) {
-            if (next.dataset.id === id) return;
-            next.remove();
+        // If a container already exists near external links or within scope, skip/reuse
+        let existing = null;
+        if (extLinks && extLinks.previousElementSibling && extLinks.previousElementSibling.classList?.contains('mdblist-rating-container')) {
+            existing = extLinks.previousElementSibling;
+        } else if (scope) {
+            existing = scope.querySelector('.mdblist-rating-container');
+        }
+        if (existing) {
+            if (existing.dataset.id === String(id)) return; // already correct
+            try { existing.remove(); } catch {}
         }
 
         const container = document.createElement('div');
         container.className = 'mdblist-rating-container';
-        container.dataset.id = id;
+        container.dataset.id = String(id);
 
-        // Note: The content (EndsAt, Gear, Ratings) is populated in renderRatings
         // Prefer placing ratings before the external links container
-        const scope = target.closest('.detailRibbon') || target.closest('.mainDetailButtons') || target.closest('.itemMiscInfo') || target.parentNode;
-        const extLinks = (scope && scope.querySelector('.itemExternalLinks')) || document.querySelector('.itemExternalLinks');
         if (extLinks) {
             extLinks.insertAdjacentElement('beforebegin', container);
         } else {
